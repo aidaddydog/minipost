@@ -1,0 +1,25 @@
+# Caddy 反向代理（HTTP 版）
+# - 静态文件：/  → /srv（映射到项目 client/ 目录）
+# - 后端转发：/api/* → server:8080
+# 若有域名与 DNS，建议改为：
+#   example.com {
+#     encode zstd gzip
+#     handle_path /api/* { reverse_proxy server:8080 }
+#     handle { root * /srv; file_server }
+#     tls you@example.com
+#   }
+:80 {
+    encode zstd gzip
+    handle_path /api/* {
+        reverse_proxy server:8080
+    }
+    handle {
+        root * /srv
+        file_server
+    }
+    # 可选：添加访问日志
+    log {
+        output stdout
+        format console
+    }
+}

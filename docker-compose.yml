@@ -1,0 +1,40 @@
+services:
+  server:
+    build:
+      context: .
+      dockerfile: server/Dockerfile
+    container_name: minipost_server
+    ports:
+      - "8080:8080"
+    networks:
+      - minipost_net
+    healthcheck:
+      test: ["CMD", "wget", "-qO", "-", "http://127.0.0.1:8080/api/v1/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+
+  caddy:
+    image: caddy:2.8
+    container_name: minipost_caddy
+    ports:
+      - "80:80"
+      - "443:443"   # 目前未启用证书，仅为将来 HTTPS 预留
+    volumes:
+      - ./reverse-proxy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./client:/srv:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      server:
+        condition: service_healthy
+    networks:
+      - minipost_net
+
+volumes:
+  caddy-data:
+  caddy-config:
+
+networks:
+  minipost_net:
+    driver: bridge
