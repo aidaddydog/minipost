@@ -1,0 +1,75 @@
+{% extends "_base/layout.html" %}
+{% block content %}
+  <div class="tabs" id="tabs"></div>
+  <div class="tabcard" id="tabCard">
+    <div class="tabpanel" id="tabPanel">请选择二级菜单。</div>
+  </div>
+
+  <!-- 面单列表表格 -->
+  <div class="table-wrap hidden" id="tableWrap">
+    <div class="table-scroll">
+      <table class="table" id="luTable">
+        <thead>
+          <tr>
+            <th class="col-chk"><input type="checkbox" class="chk" id="chkAll"></th>
+            <th class="col-order">订单号</th>
+            <th class="col-waybill">运单号</th>
+            <th class="col-trans">转单号</th>
+            <th class="col-ship">运输方式</th>
+            <th class="col-file">面单</th>
+            <th class="col-status" id="thStatus">状态
+              <button class="sort-btn" id="sortStatus" title="按状态排序" aria-label="按状态排序"><span class="ind">⇅</span></button>
+            </th>
+            <th class="col-created" id="thTime">时间
+              <button class="sort-btn" id="sortTime" title="按当前时间字段排序" aria-label="按时间排序"><span class="ind">⇅</span></button>
+            </th>
+            <th class="col-op">操作</th>
+          </tr>
+        </thead>
+        <tbody id="luTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 上传记录表格 -->
+  <div class="table-wrap hidden" id="logsTableWrap">
+    <div class="table-scroll">
+      <table class="table" id="logsTable">
+        <thead>
+          <tr>
+            <th>时间</th><th>文件名</th><th>上传类型</th>
+            <th>总数</th><th>成功</th><th>失败</th>
+            <th>操作人</th><th>日志</th>
+          </tr>
+        </thead>
+        <tbody id="logsTbody"></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- 批量单号粘贴弹窗 -->
+  <div class="modal" id="bulkModal" role="dialog" aria-modal="true" aria-labelledby="bulkTitle">
+    <div class="box" tabindex="-1">
+      <h3 id="bulkTitle" style="margin:0 0 10px;">粘贴批量单号（空格/换行分隔）</h3>
+      <textarea id="bulkText" placeholder="例如：OD202501010001&#10;1ZR0R186919389328&#10;TR000001 ..."></textarea>
+      <div class="row">
+        <button class="btn" id="bulkCancel">取消</button>
+        <button class="btn btn--black" id="bulkApply">应用搜索</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 通用操作弹窗（也用于“上传记录”的日志查看与复制） -->
+  <div class="modal" id="opModal" role="dialog" aria-modal="true" aria-labelledby="opTitle">
+    <div class="box" tabindex="-1">
+      <h3 id="opTitle" style="margin:0 0 10px;">操作</h3>
+      <div id="opContent" style="min-height:80px;color:#374151;">这里显示对应操作的表单/说明（占位）</div>
+      <div class="row">
+        <button class="btn" id="opCancel">取消</button>
+        <button class="btn btn--black" id="opConfirm">确认</button>
+      </div>
+    </div>
+  </div>
+
+  <script type="module" src="/static/js/pages/label_upload_list.js"></script>
+{% endblock %}

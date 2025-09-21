@@ -1,0 +1,17 @@
+[Unit]
+Description=Minipost (FastAPI)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/minipost
+EnvironmentFile=/opt/minipost/.deploy.env
+ExecStart=/bin/bash -lc 'source .venv/bin/activate && python run.py'
+Restart=on-failure
+RestartSec=3
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

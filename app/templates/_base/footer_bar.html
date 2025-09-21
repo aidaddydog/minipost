@@ -1,0 +1,26 @@
+<!-- 固定页底操作栏 -->
+<div class="footer-bar hidden" id="footerBar">
+  <div class="inner">
+    <a href="#" id="selAll">全选</a>
+    <a href="#" id="selInvert">反选</a>
+    <span id="selCounter" class="sel-counter">已选择 0 条</span>
+    <label>每页
+      <select id="pageSize" class="size">
+        <option value="20">20 条</option>
+        <option value="50" selected>50 条</option>
+        <option value="100">100 条</option>
+      </select>
+    </label>
+    <span id="pageInfo">共 0 条 0/0 页</span>
+    <span class="pager">
+      <a href="#" id="firstPage">&laquo;</a>
+      <a href="#" id="prevPage">&lsaquo;</a>
+      <span id="pageNums"></span>
+      <a href="#" id="nextPage">&rsaquo;</a>
+      <a href="#" id="lastPage">&raquo;</a>
+    </span>
+    <span>跳转 <input type="number" id="jumpTo" min="1" value="1"> 页</span>
+    <span class="flex-1"></span>
+    <a class="link-top" href="#" id="goTop">回到顶部 ↑</a>
+  </div>
+</div>

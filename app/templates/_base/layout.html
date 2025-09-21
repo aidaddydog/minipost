@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  {% include "_base/head.html" %}
+</head>
+<body>
+  <div class="shell">
+    <div class="header">
+      <a class="logo" href="/admin" aria-label="仪表盘"></a>
+      <div class="header-gap-left" aria-hidden="true"></div>
+      <div class="nav-rail" id="navRail" role="navigation" aria-label="主导航（一级）">
+        <div class="track" id="navTrack">
+          <div class="pill" id="pill" aria-hidden="true"></div>
+          <a class="link" data-path="/orders"    href="/admin/label-upload">订单</a>
+          <a class="link" data-path="/products"  href="#">商品</a>
+          <a class="link" data-path="/logistics" href="#">物流</a>
+          <a class="link" data-path="/settings"  href="#">设置</a>
+        </div>
+      </div>
+      <div class="header-gap-right" aria-hidden="true"></div>
+      <div class="avatar" aria-label="头像"></div>
+    </div>
+  </div>
+
+  <div class="subrow" id="subRow" aria-label="次级导航整行">
+    <div class="subrow-inner">
+      <div class="subbar-offset" aria-hidden="true"></div>
+      <div class="subbar"><div class="sub-inner" id="subInner"></div></div>
+    </div>
+  </div>
+
+  <div class="tabrow" id="tabRow">
+    <div class="tabrow-inner">
+      <div class="tab-offset" aria-hidden="true"></div>
+      <div class="tab-wrap">
+        {% block content %}{% endblock %}
+      </div>
+    </div>
+  </div>
+
+  {% include "_base/footer_bar.html" %}
+
+</body>
+</html>
