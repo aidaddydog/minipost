@@ -1,21 +1,6 @@
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  {% include "_base/head.html" %}
-  <style>
-    .login-card{max-width:360px;margin:10vh auto;background:#fff;border:1px solid #e5e7eb;border-radius:16px;padding:20px;box-shadow:0 10px 40px rgba(0,0,0,.06);}
-    .login-card h2{margin:0 0 14px 0;}
-    .login-card .row{display:flex;flex-direction:column;gap:8px;margin:8px 0;}
-    .login-card input{height:32px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;}
-    .login-card .btn{height:32px;border-radius:999px;border:0;background:#0a0a0a;color:#fff;}
-  </style>
-</head>
-<body>
-  <div class="login-card">
-    <h2>登录</h2>
-    <div class="row"><label>账号</label><input placeholder="demo@local"/></div>
-    <div class="row"><label>密码</label><input type="password" placeholder="******"/></div>
-    <button class="btn" onclick="location.href='/admin'">进入后台</button>
-  </div>
-</body>
-</html>
+{% extends "_base/layout.html" %}{% block content %}
+<div class="tabcard" style="max-width:420px;margin:40px auto;">
+  <h3 style="margin:0 0 12px;">登录</h3>
+  <form method="post"><input class="input" name="u" placeholder="用户名"><br/><br/><input class="input" type="password" name="p" placeholder="密码"><br/><br/><button class="btn btn--black">登录</button></form>
+</div>
+{% endblock %}

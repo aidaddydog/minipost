@@ -1,4 +1,4 @@
-/* 你的 UI :root 变量（可集中覆盖） */
+
 :root{
   --maxw:100%;
   --page-bg:#ffffff;
@@ -20,19 +20,15 @@
   --l2-font-size:9px; --l2-color:#334155; --l2-hover:#ea580c; --l2-item-py:6px; --l2-item-px:4px; --l2-item-radius:8px; --l2-gap:14px; --l2-item-my:5px;
   --sub-top-gap:0px; --sub-extra:5px; --sub-row-bg:transparent; --sub-grace-ms:220;
   --tab-w:100%; --tab-offset-left:calc(var(--logo-w) + var(--gap)); --tab-gap:0px; --tab-font-size:8px; --tab-radius:10px;
-  --tab-inactive-bg:transparent; --tab-active-bg:transparent; --tab-border:transparent; --tab-color:#9f9f9f; --tab-color-active:#111827; --tab-px:0px; --tab-py:3px;
-  --tabcard-radius:25px; --tabcard-bg:#f6f6f6; --tabcard-shadow:0 0 0 rgba(0,0,0,0); --tabcard-p:16px;
+  --tab-inactive-bg:transparent; --tab-active-bg:transparent; --tab-border:transparent; --tab-color:#9f9f9f; --tab-color-active:#111827;
+  --tab-px:0px; --tab-py:3px; --tabcard-radius:25px; --tabcard-bg:#f6f6f6; --tabcard-shadow:0 0 0 rgba(0,0,0,0); --tabcard-p:16px;
   --tab-text-ml:37px; --tab-ink-height:2px; --tab-ink-radius:999px; --tab-ink-color:#000000; --tab-ink-pad-x:-8px; --tab-ink-ml:6px; --tab-ink-mt:-1px;
-  --filter-card-font-family:var(--font-family); --filter-card-font-size:5px; --filter-card-line-height:1.6; --filter-card-bg:#f6f6f6;
-  --filter-card-radius:25px; --filter-card-px:14px; --filter-card-py:14px; --filter-card-mt:0px; --filter-card-mb:0px;
-  --ctl-h:20px; --ctl-minw:50px; --ctl-px:12px; --ctl-font-size:10px; --ctl-radius:999px; --ctl-border:#d1d5db; --ctl-border-width:1px;
-  --ctl-bg:#ffffff; --ctl-ink:#111827; --ctl-placeholder:#9ca3af;
-  --btn-h:var(--ctl-h); --btn-minw:50px; --btn-px:16px; --btn-gap:8px; --btn-border-width:var(--ctl-border-width); --btn-radius:var(--ctl-radius);
-  --btn-black-bg:#0a0a0a; --btn-black-ink:#ffffff; --caret-size:12px;
+  --filter-card-font-family:var(--font-family); --filter-card-font-size:5px; --filter-card-line-height:1.6; --filter-card-bg:#f6f6f6; --filter-card-radius:25px; --filter-card-px:14px; --filter-card-py:14px; --filter-card-mt:0px; --filter-card-mb:0px;
+  --ctl-h:20px; --ctl-minw:50px; --ctl-px:12px; --ctl-font-size:10px; --ctl-radius:999px; --ctl-border:#d1d5db; --ctl-border-width:1px; --ctl-bg:#ffffff; --ctl-ink:#111827; --ctl-placeholder:#9ca3af;
+  --btn-h:var(--ctl-h); --btn-minw:50px; --btn-px:16px; --btn-font-size:var(--ctl-font-size); --btn-gap:8px; --btn-border-width:var(--ctl-border-width); --btn-radius:var(--ctl-radius); --btn-black-bg:#0a0a0a; --btn-black-ink:#ffffff; --caret-size:12px;
   --input-h:var(--ctl-h); --input-minw:60px; --input-w:60px; --input-search-w:160px; --input-datetime-w:80px; --input-border-width:var(--ctl-border-width); --input-radius:var(--ctl-radius);
   --select-h:var(--ctl-h); --select-minw:50px; --select-w:auto; --select-border-width:var(--ctl-border-width); --select-radius:var(--ctl-radius);
-  --menu-minw:160px; --menu-maxh:280px; --menu-radius:12px; --menu-item-h:36px; --menu-item-px:12px; --menu-font-size:12px; --menu-shadow:0 10px 30px rgba(0,0,0,.08);
-  --menu-border-width:1px; --menu-border-color:#e5e7eb;
+  --menu-minw:160px; --menu-maxh:280px; --menu-radius:12px; --menu-item-h:36px; --menu-item-px:12px; --menu-font-size:12px; --menu-shadow:0 10px 30px rgba(0,0,0,.08); --menu-border-width:1px; --menu-border-color:#e5e7eb;
   --table-wrap-bg:transparent; --table-wrap-radius:8px; --table-wrap-mt:12px; --table-wrap-mb:60px; --table-max-h:100%;
   --table-font-family:var(--font-family); --table-font-size:8px; --table-ink:#111827;
   --table-row-bg:#ffffff; --table-head-ink:#6b7280; --table-line:#e5e7eb; --table-row-hover:#fafafa; --table-row-selected:#ffffff;
@@ -40,6 +36,5 @@
   --col-w-chk:36px; --col-w-order:160px; --col-w-waybill:200px; --col-w-trans:140px; --col-w-ship:110px; --col-w-file:160px; --col-w-status:110px; --col-w-created:160px; --col-w-op:140px;
   --footer-font-family:var(--font-family); --footer-font-size:9px; --footer-bg:#f6f6f6; --footer-ink:#111827; --footer-radius:25px; --footer-shadow:0 0 0 rgba(0,0,0,0);
   --footer-px:30px; --footer-py:10px; --footer-gap:12px; --footer-bottom:10px; --footer-ctl-h:20px; --footer-ctl-border-width:0px;
-  --scrollbar-w: 6px; --scrollbar-h: 6px; --scrollbar-thumb: rgba(15,23,42,0.10); --scrollbar-thumb-hover: rgba(15,23,42,0.18);
-  --scrollbar-track: transparent; --scrollbar-radius: 999px; --scrollbar-gutter: stable;
+  --scrollbar-w:6px; --scrollbar-h:6px; --scrollbar-thumb:rgba(15,23,42,0.10); --scrollbar-thumb-hover:rgba(15,23,42,0.18); --scrollbar-track:transparent; --scrollbar-radius:999px; --scrollbar-gutter:stable;
 }

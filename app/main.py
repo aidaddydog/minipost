@@ -1,41 +1,50 @@
-import os, logging, logging.config
-from fastapi import FastAPI, Request
-from fastapi.responses import RedirectResponse, HTMLResponse
+
+# -*- coding: utf-8 -*-
+import os
+from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.sessions import SessionMiddleware
 
-from app.core.settings import settings
-from app.api.v1 import router as v1_router
+from app.core.config import get_settings
+from app.core.db import engine
+from app.models.entities import Base
 
-# logging
-cfg = os.path.join(os.path.dirname(os.path.dirname(__file__)), "config", "logging.ini")
-if os.path.exists(cfg):
-    logging.config.fileConfig(cfg, disable_existing_loggers=False)
+# 初始化 DB
+Base.metadata.create_all(bind=engine)
 
-app = FastAPI(title="Minipost Server", version="2025-09-21")
+settings = get_settings()
+app = FastAPI(title="minipost 管理端")
+app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
 
-BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".."))
-app.mount("/static",  StaticFiles(directory=os.path.join(BASE_DIR, "static")), name="static")
-app.mount("/updates", StaticFiles(directory=os.path.join(BASE_DIR, "updates")), name="updates")
-app.mount("/runtime", StaticFiles(directory=os.path.join(BASE_DIR, "runtime")), name="runtime")
+# 静态资源
+static_dir = os.path.join(settings.BASE_DIR, "static")
+app.mount("/static", StaticFiles(directory=static_dir), name="static")
 
-templates = Jinja2Templates(directory=os.path.join(BASE_DIR, "app", "templates"))
+# 模板
+templates = Jinja2Templates(directory=settings.TEMPLATES_DIR)
+try:
+    templates.env.auto_reload = True
+except Exception:
+    pass
 
-# routers
-app.include_router(v1_router)
+# 依赖注入给子模块
+from app.api import public as public_api
+from app.api import admin_ui as admin_ui
+from app.api.admin_extras import router as admin_extras_router
 
-@app.get("/", response_class=HTMLResponse)
-def index():
-    return RedirectResponse("/admin")
+# 将 templates 暴露给子模块
+public_api.templates = templates
+admin_ui.templates = templates
 
-@app.get("/admin", response_class=HTMLResponse)
-def admin_home(request: Request):
-    return templates.TemplateResponse("admin/dashboard.html", {"request": request, "title": "仪表盘"})
+# 路由挂载
+app.include_router(public_api.router)
+app.include_router(admin_ui.router)
+app.include_router(admin_extras_router)
 
-@app.get("/admin/label-upload", response_class=HTMLResponse)
-def admin_label_upload(request: Request):
-    return templates.TemplateResponse("admin/label_upload_list.html", {"request": request, "title": "面单上传"})
+# 登陆页（壳）
+from fastapi.responses import HTMLResponse
+@app.get("/auth/login", response_class=HTMLResponse)
+def login_shell():
+    return templates.TemplateResponse("auth/login.html", {"request": {}})
 
-@app.get("/admin/login", response_class=HTMLResponse)
-def admin_login(request: Request):
-    return templates.TemplateResponse("auth/login.html", {"request": request, "title": "登录"})

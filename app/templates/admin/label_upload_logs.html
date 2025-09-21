@@ -1,7 +1,6 @@
 {% extends "_base/layout.html" %}
 {% block content %}
-<div id="labelUploadRoot">
-  <!-- 三级页签 + 卡片 + 表格 使用 JS 渲染 -->
+<div id="labelUploadLogsRoot">
   <div class="tabrow" id="tabRow">
     <div class="tabrow-inner">
       <div class="tab-offset" aria-hidden="true"></div>
@@ -10,12 +9,11 @@
         <div class="tabcard" id="tabCard">
           <div class="tabpanel" id="tabPanel">加载中…</div>
         </div>
-        <div class="table-wrap hidden" id="tableWrap"><div class="table-scroll"><table class="table"><thead></thead><tbody id="luTbody"></tbody></table></div></div>
         <div class="table-wrap hidden" id="logsTableWrap"><div class="table-scroll"><table class="table"><thead></thead><tbody id="logsTbody"></tbody></table></div></div>
       </div>
     </div>
   </div>
   <div class="footer-bar hidden" id="footerBar"><div class="inner"></div></div>
 </div>
-<script src="/static/js/pages/label_upload_list.js"></script>
+<script src="/static/js/pages/label_upload_logs.js"></script>
 {% endblock %}

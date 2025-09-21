@@ -1,10 +1,5 @@
-/* Reset & 通用 */
-*{box-sizing:border-box}
-body{margin:0;background:var(--page-bg);color:var(--text);font-family:var(--font-family);font-size:var(--font-size-base);line-height:var(--line-height-base)}
+
+*{box-sizing:border-box}html,body{height:100%}body{margin:0;font-family:var(--font-family);font-size:var(--font-size-base);line-height:var(--line-height-base);background:var(--page-bg);color:var(--text)}
 .shell{max-width:var(--maxw);margin:0 auto;padding:var(--page-pt) var(--page-px) var(--page-pb)}
-html,body{height:100%}
-.header,.subrow,.tabrow{background:var(--page-bg)}
-/* 滚动条 */
-::-webkit-scrollbar{width:var(--scrollbar-w);height:var(--scrollbar-h);background:var(--scrollbar-track)}
-::-webkit-scrollbar-thumb{background:var(--scrollbar-thumb);border-radius:var(--scrollbar-radius)}
-::-webkit-scrollbar-thumb:hover{background:var(--scrollbar-thumb-hover)}
+a{color:inherit}
+.hidden{display:none}
