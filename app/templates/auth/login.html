@@ -1,6 +1,10 @@
-{% extends "_base/layout.html" %}{% block content %}
-<div class="tabcard" style="max-width:420px;margin:40px auto;">
-  <h3 style="margin:0 0 12px;">登录</h3>
-  <form method="post"><input class="input" name="u" placeholder="用户名"><br/><br/><input class="input" type="password" name="p" placeholder="密码"><br/><br/><button class="btn btn--black">登录</button></form>
-</div>
-{% endblock %}
+{% extends '_base/layout.html' %}{% block content %}
+<div class="shell" style="max-width:420px">
+  <h2>登录</h2>
+  {% if error %}<div style="color:#ef4444">{{ error }}</div>{% endif %}
+  <form action="/admin/login" method="post" style="display:flex; flex-direction:column; gap:8px">
+    <input class="input" name="username" placeholder="用户名">
+    <input class="input" name="password" type="password" placeholder="密码">
+    <button class="btn btn--black" type="submit">登录</button>
+  </form>
+</div>{% endblock %}

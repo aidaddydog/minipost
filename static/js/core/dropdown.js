@@ -1,1 +1,1 @@
-// 通用下拉：由页面脚本实现 open/close
+// 已合并至 /static/js/admin_bundle.js

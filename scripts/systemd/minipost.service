@@ -1,14 +1,18 @@
 [Unit]
-Description=minipost FastAPI service
+Description=minipost (FastAPI) Service
 After=network.target
 
 [Service]
 Type=simple
 WorkingDirectory=/opt/minipost
-ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host 0.0.0.0 --port 8000
+EnvironmentFile=/opt/minipost/.deploy.env
+ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host ${HOST} --port ${PORT}
 Restart=always
 RestartSec=3
 User=root
+LimitNOFILE=65535
+StandardOutput=append:/opt/minipost/logs/uvicorn.out.log
+StandardError=append:/opt/minipost/logs/uvicorn.err.log
 
 [Install]
 WantedBy=multi-user.target

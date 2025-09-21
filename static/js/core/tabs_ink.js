@@ -1,1 +1,1 @@
-// 页签墨线（在页面中定位）
+// 已合并至 /static/js/admin_bundle.js

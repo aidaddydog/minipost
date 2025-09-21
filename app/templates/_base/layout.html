@@ -1,21 +1,6 @@
-{% set static = "/static" %}
-<!doctype html>
-<html lang="zh-CN">
-<head>
-  {% include "_base/head.html" %}
-</head>
+{% include '_base/head.html' %}
 <body>
-  <div id="app">
-    {% block body %}
-    <div class="shell">
-      {% block content %}{% endblock %}
-    </div>
-    {% endblock %}
-  </div>
-  <script src="{{ static }}/js/core/nav_capsule.js"></script>
-  <script src="{{ static }}/js/core/tabs_ink.js"></script>
-  <script src="{{ static }}/js/core/dropdown.js"></script>
-  <script src="{{ static }}/js/core/select_enhance.js"></script>
-  <script src="{{ static }}/js/core/modal.js"></script>
+  <div id="app">{% block content %}{% endblock %}</div>
+  <script defer src="/static/js/admin_bundle.js"></script>
 </body>
 </html>

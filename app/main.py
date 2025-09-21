@@ -1,50 +1,39 @@
-
-# -*- coding: utf-8 -*-
 import os
 from fastapi import FastAPI
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from starlette.middleware.sessions import SessionMiddleware
 
-from app.core.config import get_settings
-from app.core.db import engine
-from app.models.entities import Base
+from .core.config import get_settings
+from .core.deps import get_engine
+from .models.base import Base
+from .models import tables  # ensure model classes imported
+from .api import router as api_router
+from .api.admin_pages import router as admin_router
 
-# 初始化 DB
-Base.metadata.create_all(bind=engine)
+SET = get_settings()
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
 
-settings = get_settings()
-app = FastAPI(title="minipost 管理端")
-app.add_middleware(SessionMiddleware, secret_key=settings.SECRET_KEY)
+# 初始化数据库（若不存在则建表）
+engine = get_engine()
+Base.metadata.create_all(bind=engine, checkfirst=True)
 
-# 静态资源
-static_dir = os.path.join(settings.BASE_DIR, "static")
-app.mount("/static", StaticFiles(directory=static_dir), name="static")
+app = FastAPI(title="minipost（换单服务端-新UI）")
 
-# 模板
-templates = Jinja2Templates(directory=settings.TEMPLATES_DIR)
-try:
-    templates.env.auto_reload = True
-except Exception:
-    pass
+# session
+app.add_middleware(SessionMiddleware, secret_key=SET.SECRET_KEY)
 
-# 依赖注入给子模块
-from app.api import public as public_api
-from app.api import admin_ui as admin_ui
-from app.api.admin_extras import router as admin_extras_router
+# 静态资源与模板
+STATIC_DIR = os.path.join(BASE_DIR, "static")
+TEMPLATES_DIR = os.path.join(BASE_DIR, "templates")
+RUNTIME_DIR = os.path.join(BASE_DIR, "runtime")
+os.makedirs(RUNTIME_DIR, exist_ok=True)
+app.mount("/static",  StaticFiles(directory=STATIC_DIR), name="static")
+app.mount("/updates", StaticFiles(directory=os.path.join(BASE_DIR, "..", "updates")), name="updates")
 
-# 将 templates 暴露给子模块
-public_api.templates = templates
-admin_ui.templates = templates
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
+app.state.templates = templates
 
-# 路由挂载
-app.include_router(public_api.router)
-app.include_router(admin_ui.router)
-app.include_router(admin_extras_router)
-
-# 登陆页（壳）
-from fastapi.responses import HTMLResponse
-@app.get("/auth/login", response_class=HTMLResponse)
-def login_shell():
-    return templates.TemplateResponse("auth/login.html", {"request": {}})
-
+# 路由
+app.include_router(admin_router)
+app.include_router(api_router)

@@ -1,1 +1,1 @@
-// 原生 select 增强：详见页面脚本
+// 已合并至 /static/js/admin_bundle.js

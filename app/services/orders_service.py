@@ -1,30 +1,35 @@
-
-# -*- coding: utf-8 -*-
-from typing import List, Dict, Any, Optional, Tuple
+import os, io, re
+import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import func
-from app.models.entities import OrderMapping, TrackingFile
+from datetime import datetime
+from ..models.tables import OrderMapping, UploadLog
 
-def mapping_version(db: Session) -> int:
-    # 用 meta 中的 mapping_version 作为版本号，不存在则根据记录数生成
-    from app.services.meta_service import get_kv, set_kv
-    v = get_kv(db, "mapping_version", None)
-    if v is None:
-        cnt = db.query(func.count(OrderMapping.tracking_no)).scalar() or 0
-        v = str(cnt)
-        set_kv(db, "mapping_version", v)
-    return int(v) if str(v).isdigit() else 0
-
-def build_mapping_payload(db: Session) -> Dict[str, Any]:
-    # 将 OrderMapping + TrackingFile 打包为客户端可用的映射 JSON
-    items = (
-        db.query(OrderMapping.tracking_no, OrderMapping.order_no, TrackingFile.file_path)
-          .outerjoin(TrackingFile, TrackingFile.tracking_no==OrderMapping.tracking_no)
-          .all()
-    )
-    mapping = { t: {"order_no": o or "", "file": f or ""} for (t, o, f) in items }
-    return {"version": mapping_version(db), "count": len(mapping), "mapping": mapping}
-
-def find_file_path(db: Session, tracking_no: str) -> Optional[str]:
-    row = db.query(TrackingFile).filter(TrackingFile.tracking_no==tracking_no).first()
-    return row.file_path if row else None
+def import_orders_mapping(db: Session, file_bytes: bytes, filename: str, order_col: str, tracking_col: str) -> dict:
+    # 解析 CSV/XLSX
+    buf = io.BytesIO(file_bytes)
+    if filename.lower().endswith('.csv'):
+        df = pd.read_csv(buf, dtype=str)
+    else:
+        df = pd.read_excel(buf, dtype=str)
+    df = df.fillna('')
+    total = 0; succ=0; fail=0
+    success_nos = []; fail_nos = []
+    for _, row in df.iterrows():
+        order = str(row.get(order_col,'' )).strip()
+        tracking = re.sub(r'[^A-Za-z0-9]+','', str(row.get(tracking_col,'')).strip())
+        if not order or not tracking:
+            fail += 1; continue
+        rec = db.get(OrderMapping, order)
+        if not rec:
+            rec = OrderMapping(order_id=order, tracking_no=tracking, updated_at=datetime.utcnow()); db.add(rec)
+        else:
+            rec.tracking_no = tracking; rec.updated_at = datetime.utcnow()
+        succ += 1; total += 1
+        success_nos.append(tracking)
+    db.commit()
+    # 记录上传日志
+    log = UploadLog(file_name=filename, upload_type='运单号',
+                    total=len(df), success=succ, fail=(len(df)-succ),
+                    operator='系统', success_nos='\n'.join(success_nos), fail_nos='\n'.join(fail_nos))
+    db.add(log); db.commit()
+    return {"total": len(df), "success": succ, "fail": (len(df)-succ)}
