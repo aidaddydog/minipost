@@ -1,44 +1,48 @@
-from fastapi import FastAPI, Request, Depends, UploadFile, File, Form
-from fastapi.responses import RedirectResponse, HTMLResponse
+# app/main.py
+import os
+from fastapi import FastAPI, Request
+from fastapi.responses import HTMLResponse, RedirectResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
-from fastapi.templating import Jinja2Templates
+from starlette.templating import Jinja2Templates
 
-from app.core.db import Base, engine
-from app.api import api_router
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+TEMPLATES_DIR = os.path.join(BASE_DIR, "app", "templates")
+STATIC_DIR = os.path.join(BASE_DIR, "static")
 
 app = FastAPI(title="minipost")
 
-# 静态与模板
-app.mount("/static", StaticFiles(directory="static"), name="static")
-templates = Jinja2Templates(directory="app/templates")
+# 静态资源
+if os.path.isdir(STATIC_DIR):
+    app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 
-# DB 初始化（首次自动建表）
-Base.metadata.create_all(bind=engine)
+templates = Jinja2Templates(directory=TEMPLATES_DIR)
 
-# API
-app.include_router(api_router, prefix="/api")
+# 健康检查：安装脚本使用该接口，避免 404
+@app.get("/healthz", include_in_schema=False)
+def healthz():
+    return JSONResponse({"ok": True})
 
-# 根路径：跳转到后台（避免 / 返回 404）
+# 入口跳转
 @app.get("/", include_in_schema=False)
-def index():
-    return RedirectResponse(url="/admin")
+def root():
+    return RedirectResponse(url="/admin", status_code=302)
 
-# 后台首页（仪表盘）
-@app.get("/admin", response_class=HTMLResponse, include_in_schema=False)
-def admin_root(request: Request):
-    # 直接进入“订单/面单上传/面单列表”
-    return RedirectResponse(url="/orders/label-upload/list")
+# 仪表盘
+@app.get("/admin", response_class=HTMLResponse)
+def admin_dashboard(request: Request):
+    return templates.TemplateResponse("admin/dashboard.html", {"request": request})
 
 # 登录页
-@app.get("/admin/login", response_class=HTMLResponse, include_in_schema=False)
+@app.get("/admin/login", response_class=HTMLResponse)
 def admin_login(request: Request):
     return templates.TemplateResponse("auth/login.html", {"request": request})
 
-# —— 管理端所有一级导航入口：映射到同一个壳模板（UI 在前端切换二、三级）——
-@app.get("/orders{full:path}", response_class=HTMLResponse, include_in_schema=False)
-@app.get("/products{full:path}", response_class=HTMLResponse, include_in_schema=False)
-@app.get("/logistics{full:path}", response_class=HTMLResponse, include_in_schema=False)
-@app.get("/settings{full:path}", response_class=HTMLResponse, include_in_schema=False)
-def admin_shell(request: Request, full: str = ""):
-    # Jinja 壳模板中装载你的 UI（胶囊轨道/三级页签/表格/底栏）
-    return templates.TemplateResponse("admin/shell.html", {"request": request})
+# 面单上传（你的 UI）
+@app.get("/orders/label-upload/list", response_class=HTMLResponse)
+def label_upload_list(request: Request):
+    return templates.TemplateResponse("admin/label_upload_list.html", {"request": request})
+
+# 上传记录（同一 UI 页面内有页签切换）
+@app.get("/orders/label-upload/logs", response_class=HTMLResponse)
+def label_upload_logs(request: Request):
+    return templates.TemplateResponse("admin/label_upload_list.html", {"request": request})
