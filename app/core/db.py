@@ -1,36 +1,14 @@
-
-# -*- coding: utf-8 -*-
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker, scoped_session
-from sqlalchemy.pool import StaticPool
-from contextlib import contextmanager
 import os
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker, declarative_base
 
-from .config import get_settings
+DB_URL = os.getenv("DB_URL", "sqlite:///./minipost.db")
+engine = create_engine(DB_URL, connect_args={"check_same_thread": False} if DB_URL.startswith("sqlite") else {})
 
-settings = get_settings()
+SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+Base = declarative_base()
 
-# SQLite: check_same_thread=False for FastAPI multi-threads
-engine = create_engine(
-    settings.SQLALCHEMY_URL,
-    connect_args={"check_same_thread": False} if settings.SQLALCHEMY_URL.startswith("sqlite") else {},
-    poolclass=StaticPool if settings.SQLALCHEMY_URL.startswith("sqlite") else None,
-)
-
-SessionLocal = scoped_session(sessionmaker(autocommit=False, autoflush=False, bind=engine))
-
-@contextmanager
-def session_scope():
-    db = SessionLocal()
-    try:
-        yield db
-        db.commit()
-    except:
-        db.rollback()
-        raise
-    finally:
-        db.close()
-
+# FastAPI 依赖
 def get_db():
     db = SessionLocal()
     try:
