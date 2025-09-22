@@ -1,17 +1,28 @@
 [Unit]
 Description=minipost (FastAPI) Service
-After=network-online.target
-Wants=network-online.target
+After=network.target
 
 [Service]
-Type=simple
-User=root
+# 运行目录
 WorkingDirectory=/opt/minipost
+
+# 读取环境变量（可选，不存在也不报错）
 EnvironmentFile=/opt/minipost/.deploy.env
-ExecStartPre=/usr/bin/install -d -m 0755 /opt/minipost/logs
-ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host ${HOST} --port ${PORT}
-Restart=on-failure
-RestartSec=2s
+# 兜底默认
+Environment=HOST=0.0.0.0
+Environment=PORT=8000
+
+# 关键：用 /bin/sh -lc 包一层，才能展开 ${HOST}/${PORT}
+ExecStart=/bin/sh -lc '/opt/minipost/.venv/bin/uvicorn app.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}"'
+
+Restart=always
+RestartSec=2
+User=root
+Group=root
+
+# 直接打到 journal（用 journalctl 查看）
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=multi-user.target
