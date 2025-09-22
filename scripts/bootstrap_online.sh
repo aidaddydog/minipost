@@ -1,134 +1,141 @@
 #!/usr/bin/env bash
+# minipost/scripts/bootstrap_online.sh
+# 说明：一键拉起/更新 FastAPI 服务（安全幂等，修复变量展开、日志目录 & 输出公网 IP）
 set -Eeuo pipefail
 
-# ========= 基本参数 =========
-REPO_URL="${REPO_URL:-https://github.com/aidaddydog/minipost}"
-BRANCH="${BRANCH:-main}"
-DEST_DIR="${DEST_DIR:-/opt/minipost}"
-SERVICE_NAME="${SERVICE_NAME:-minipost}"
-PYTHON="${PYTHON:-python3}"
-VENV_DIR="${VENV_DIR:-$DEST_DIR/.venv}"
-REQUIREMENTS_FILE="${REQUIREMENTS_FILE:-$DEST_DIR/requirements.txt}"
-DEPLOY_ENV="${DEPLOY_ENV:-$DEST_DIR/.deploy.env}"
-SYSTEMD_UNIT="/etc/systemd/system/${SERVICE_NAME}.service"
+APP_DIR=${APP_DIR:-/opt/minipost}
+REPO_URL=${REPO_URL:-https://github.com/aidaddydog/minipost.git}
+BRANCH=${BRANCH:-main}
+PY=${PY:-python3}
+PIP_INDEX=${PIP_INDEX:-http://mirrors.cloud.aliyuncs.com/pypi/simple/}
+DEBIAN_FRONTEND=noninteractive
 
-# ========= 打印帮助函数 =========
-info(){ echo -e "==> $*"; }
-ok(){   echo -e "✔ $*"; }
-err(){  echo -e "✘ $*" 1>&2; }
+log() { echo -e "$@"; }
+step() { echo -e "==> $@"; }
+ok() { echo -e "✔ $@"; }
+err() { echo -e "✘ $@" 1>&2; }
 
-# ========= 公网 IP 探测 =========
 detect_public_ip() {
-  # 优先使用环境变量覆盖
-  if [[ -n "${PUBLIC_IP:-}" ]]; then echo "$PUBLIC_IP"; return; fi
-
-  # 尝试云厂商元数据（阿里云 / AWS）
+  # 优先云厂商元数据（阿里云），再退回公网查询，最终回落到内网地址
   local ip=""
-  ip="$(curl -fsS --max-time 2 http://100.100.100.200/latest/meta-data/public-ipv4 || true)"
-  if [[ -z "$ip" ]]; then
-    ip="$(curl -fsS --max-time 2 http://169.254.169.254/latest/meta-data/public-ipv4 || true)"
+  # 阿里云元数据（可能不存在，最多 1s）
+  ip=$(curl -4 -fsS --max-time 1 http://100.100.100.200/latest/meta-data/public-ipv4 || true)
+  if [ -z "$ip" ]; then
+    # 常见公网查询（各 2s 超时）
+    ip=$(curl -4 -fsS --max-time 2 http://ifconfig.me || true)
   fi
-
-  # 通用外网探测
-  if [[ -z "$ip" ]]; then
-    ip="$(curl -fsS --max-time 3 https://api.ipify.org || true)"
+  if [ -z "$ip" ]; then
+    ip=$(curl -4 -fsS --max-time 2 http://ipinfo.io/ip || true)
   fi
-  if [[ -z "$ip" ]]; then
-    ip="$(curl -fsS --max-time 3 https://ifconfig.me || true)"
-  fi
-
-  # 兜底（可能是内网 IP，但至少不为空）
-  if [[ -z "$ip" ]]; then
-    ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  if [ -z "$ip" ]; then
+    # 退回内网地址
+    ip=$(hostname -I 2>/dev/null | awk '{print $1}')
   fi
   echo "$ip"
 }
 
-# ========= 安装依赖 =========
-info "安装基础依赖"
-export DEBIAN_FRONTEND=noninteractive
-apt-get update -y -o Acquire::Retries=3
-apt-get install -y git curl ca-certificates python3 python3-venv python3-pip unzip ufw
+# 1) 依赖
+step "安装基础依赖"
+apt-get update -y >/dev/null
+apt-get install -y git curl ca-certificates python3 python3-venv python3-pip unzip ufw >/dev/null
 
-# ========= 拉取/更新仓库 =========
-info "拉取/更新仓库到 ${DEST_DIR}"
-if [[ -d "$DEST_DIR/.git" ]]; then
-  git -C "$DEST_DIR" fetch --all --quiet
-  git -C "$DEST_DIR" reset --hard "origin/${BRANCH}"
+# 2) 拉仓库
+step "拉取/更新仓库到 ${APP_DIR}"
+if [ -d "${APP_DIR}/.git" ]; then
+  git -C "${APP_DIR}" fetch --all -q
+  git -C "${APP_DIR}" reset --hard "origin/${BRANCH}" -q
 else
-  rm -rf "$DEST_DIR"
-  git clone --depth 1 --branch "$BRANCH" "$REPO_URL" "$DEST_DIR"
+  install -d -m 0755 "${APP_DIR}"
+  git clone -q --depth=1 -b "${BRANCH}" "${REPO_URL}" "${APP_DIR}"
 fi
 
-# 清理可能的缓存
-rm -rf "$DEST_DIR/app/__pycache__" "$VENV_DIR"
+# 3) Python venv
+step "准备 Python 虚拟环境"
+install -d -m 0755 "${APP_DIR}/.venv"
+if [ ! -x "${APP_DIR}/.venv/bin/python3" ]; then
+  ${PY} -m venv "${APP_DIR}/.venv"
+fi
+"${APP_DIR}/.venv/bin/pip" install -U pip -i "${PIP_INDEX}" >/dev/null
+if [ -f "${APP_DIR}/requirements.txt" ]; then
+  PIP_INDEX_URL="${PIP_INDEX}" "${APP_DIR}/.venv/bin/pip" install -i "${PIP_INDEX}" -r "${APP_DIR}/requirements.txt"
+fi
 
-# ========= Python 虚拟环境 =========
-info "准备 Python 虚拟环境"
-$PYTHON -m venv "$VENV_DIR"
-"$VENV_DIR/bin/pip" install -U pip -i http://mirrors.cloud.aliyuncs.com/pypi/simple/ --trusted-host mirrors.cloud.aliyuncs.com
-"$VENV_DIR/bin/pip" install -r "$REQUIREMENTS_FILE" -i http://mirrors.cloud.aliyuncs.com/pypi/simple/ --trusted-host mirrors.cloud.aliyuncs.com
-
-# ========= 默认部署环境 =========
-info "写入默认 .deploy.env（保留已存在）"
-if [[ ! -f "$DEPLOY_ENV" ]]; then
-  cat >"$DEPLOY_ENV" <<'EOF'
-# minipost 部署默认值（可按需修改）
+# 4) 默认 .deploy.env（若不存在则写入）
+step "写入默认 .deploy.env（保留已存在）"
+DEPLOY_ENV="${APP_DIR}/.deploy.env"
+if [ ! -f "${DEPLOY_ENV}" ]; then
+  cat > "${DEPLOY_ENV}" <<'ENV'
+# minipost/.deploy.env
 HOST=0.0.0.0
 PORT=8000
+ENV=prod
 WORKERS=1
-LOG_DIR=/var/log/minipost
-EOF
-  ok "已写入 $DEPLOY_ENV"
+ENV_FILE=/opt/minipost/.env
+ENV_LOG_LEVEL=info
+ENV_RELOAD=0
+ENV_PROXY_HEADERS=1
+ENV_FORWARD_ALLOW_IPS=*
+ENV_FACTORY=app.main:app
+ENV_APP_DIR=/opt/minipost
+ENV_STATIC_DIR=/opt/minipost/static
+ENV_TEMPLATES_DIR=/opt/minipost/app/templates
+ENV_LOG_DIR=/opt/minipost/logs
+ENV_SYSTEMD=1
+ENV
+  ok "已写入 ${DEPLOY_ENV}"
 else
-  ok "已存在 $DEPLOY_ENV，跳过覆盖"
+  ok "已存在 ${DEPLOY_ENV}，跳过覆盖"
 fi
-# shellcheck disable=SC1090
-source "$DEPLOY_ENV"
 
-# ========= systemd 单元 =========
-info "安装 systemd 服务（修复变量展开、日志目录）"
-install -d -m 0755 "${LOG_DIR:-/var/log/minipost}"
+# 5) 日志与运行目录
+step "创建日志与运行目录"
+install -d -m 0755 "${APP_DIR}/logs"
 
-cat >"$SYSTEMD_UNIT" <<EOF
+# 6) systemd 服务（用 *单引号* heredoc 禁止 shell 展开，避免未定义变量导致错误）
+SVC_PATH=/etc/systemd/system/minipost.service
+step "安装 systemd 服务"
+cat > "${SVC_PATH}" <<'SERVICE'
 [Unit]
-Description=${SERVICE_NAME} (FastAPI) Service
-After=network.target
+Description=minipost (FastAPI) Service
+Documentation=README.md
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-EnvironmentFile=-${DEPLOY_ENV}
-WorkingDirectory=${DEST_DIR}
-ExecStartPre=/usr/bin/install -d -m 0755 ${LOG_DIR}
-ExecStart=${VENV_DIR}/bin/uvicorn app.main:app --host \${HOST:-0.0.0.0} --port \${PORT:-8000} --workers \${WORKERS:-1}
-Restart=always
-RestartSec=2
 User=root
-Group=root
-StandardOutput=append:${LOG_DIR}/stdout.log
-StandardError=append:${LOG_DIR}/stderr.log
-LimitNOFILE=65535
+WorkingDirectory=/opt/minipost
+EnvironmentFile=/opt/minipost/.deploy.env
+# 确保日志目录存在
+ExecStartPre=/usr/bin/install -d -m 0755 /opt/minipost/logs
+# 变量由 systemd 从 EnvironmentFile 展开
+ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host ${HOST} --port ${PORT}
+Restart=on-failure
+RestartSec=2s
+# 日志输出到 journald，查看：journalctl -u minipost.service -e -n 200
 
 [Install]
 WantedBy=multi-user.target
-EOF
+SERVICE
 
 systemctl daemon-reload
-systemctl enable "$SERVICE_NAME" >/dev/null 2>&1 || true
+systemctl enable minipost.service >/dev/null || true
 
-# ========= 开放防火墙端口 =========
-info "开放防火墙 ${PORT:-8000} 端口（如已启用 UFW）"
-ufw allow "${PORT:-8000}"/tcp || true
+# 7) UFW
+step "开放防火墙 ${PORT:-8000} 端口（如已启用 UFW）"
+if command -v ufw >/dev/null 2>&1; then
+  ufw allow "${PORT:-8000}/tcp" >/dev/null 2>&1 || true
+fi
 
-# ========= 启动服务 =========
-info "启动服务"
-systemctl restart "$SERVICE_NAME"
+# 8) 启动
+step "启动服务"
+if ! systemctl restart minipost.service; then
+  err "失败，详见 /var/log/minipost-bootstrap.log（或执行：journalctl -u minipost.service -e -n 200）"
+  exit 1
+fi
+systemctl --no-pager --full status minipost.service | sed -n '1,20p'
 
-# 展示状态摘要
-sleep 1
-systemctl --no-pager --full status "$SERVICE_NAME" | sed -n '1,20p' || true
-
-# ========= 输出最终可访问地址（含公网 IP）=========
+# 9) 最终提示（公网 IP）
 PUBLIC_IP="$(detect_public_ip)"
-BASE_URL="http://${PUBLIC_IP}:${PORT:-8000}"
-ok "完成。后台：${BASE_URL}/admin   登录：${BASE_URL}/admin/login"
+PORT_VAL="$(. "${DEPLOY_ENV}"; echo "${PORT}")"
+echo "✔ 完成。后台：http://${PUBLIC_IP:-<服务器IP>}:${PORT_VAL:-8000}/admin   登录：/admin/login"

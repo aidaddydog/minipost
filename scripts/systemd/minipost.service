@@ -1,24 +1,17 @@
 [Unit]
 Description=minipost (FastAPI) Service
-After=network.target
+After=network-online.target
+Wants=network-online.target
 
 [Service]
 Type=simple
-WorkingDirectory=/opt/minipost
-# 从 .deploy.env 读取环境（HOST/PORT/DB_URL/SECRET_KEY 等）
-EnvironmentFile=/opt/minipost/.deploy.env
-# 启动前创建日志目录（避免 209/STDOUT）
-ExecStartPre=/usr/bin/install -d -m 0755 /opt/minipost/logs
-# 通过 bash 展开环境变量，并用 exec 让 uvicorn 接管 PID 1
-ExecStart=/bin/bash -lc 'exec /opt/minipost/.venv/bin/uvicorn app.main:app --host "${HOST:-0.0.0.0}" --port "${PORT:-8000}"'
-# 重启策略
-Restart=always
-RestartSec=3s
 User=root
-LimitNOFILE=65535
-# 文件日志（配合 ExecStartPre 保证目录已存在）
-StandardOutput=append:/opt/minipost/logs/uvicorn.out.log
-StandardError=append:/opt/minipost/logs/uvicorn.err.log
+WorkingDirectory=/opt/minipost
+EnvironmentFile=/opt/minipost/.deploy.env
+ExecStartPre=/usr/bin/install -d -m 0755 /opt/minipost/logs
+ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host ${HOST} --port ${PORT}
+Restart=on-failure
+RestartSec=2s
 
 [Install]
 WantedBy=multi-user.target

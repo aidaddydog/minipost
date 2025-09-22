@@ -1,11 +1,13 @@
 #!/usr/bin/env bash
+# minipost/scripts/install_root.sh
+# 可选的离线/二次安装脚本（被 bootstrap_online.sh 覆盖调用）
 set -Eeuo pipefail
 
-BASE="${BASE:-$(cd "$(dirname "$0")/.." && pwd)}"
-cd "$BASE"
-source .venv/bin/activate
+APP_DIR=${APP_DIR:-/opt/minipost}
+: "${LOG_DIR:=${APP_DIR}/logs}"   # 避免 set -u 下未绑定变量报错
 
-mkdir -p logs pdfs updates runtime
+echo "==> 准备目录与权限"
+install -d -m 0755 "${APP_DIR}"
+install -d -m 0755 "${LOG_DIR}"
 
-# systemd 已由 bootstrap_online.sh 安装；此处仅确保可启动
-echo "minipost 安装完成于 $BASE"
+echo "==> 完成（install_root.sh 占位）"
