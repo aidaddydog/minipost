@@ -1,6 +1,10 @@
-{% include '_base/head.html' %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  {% include "_base/head.html" %}
+  <title>{{ title or "minipost 管理端" }}</title>
+</head>
 <body>
-  <div id="app">{% block content %}{% endblock %}</div>
-  <script defer src="/static/js/admin_bundle.js"></script>
+  {% block body %}{% endblock %}
 </body>
 </html>
