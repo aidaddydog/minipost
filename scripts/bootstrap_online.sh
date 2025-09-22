@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
-# minipost 在线一键部署引导
+# minipost 在线一键部署引导（修复 systemd 209/STDOUT & 变量不展开）
 set -Eeuo pipefail
-
 LOG=/var/log/minipost-bootstrap.log
 exec > >(tee -a "$LOG") 2>&1
 
@@ -17,42 +16,44 @@ trap 'die "失败，详见 $LOG（或执行：journalctl -u minipost.service -e 
 step "安装基础依赖"
 export DEBIAN_FRONTEND=noninteractive
 apt-get update -y
-apt-get install -y --no-install-recommends git curl ca-certificates python3 python3-venv python3-pip unzip ufw
+apt-get install -y git curl ca-certificates python3 python3-venv python3-pip unzip ufw
 
 step "拉取/更新仓库到 $DEST"
 if [ -d "$DEST/.git" ]; then
   git -C "$DEST" fetch --all --prune
   git -C "$DEST" checkout "$BRANCH"
   git -C "$DEST" reset --hard "origin/$BRANCH"
-  git -C "$DEST" clean -fd
 else
   rm -rf "$DEST"
-  git clone -b "$BRANCH" "$REPO" "$DEST"
+  git clone --depth=1 --branch "$BRANCH" "$REPO" "$DEST"
 fi
 
 step "准备 Python 虚拟环境"
-cd "$DEST"
-python3 -m venv .venv
-source .venv/bin/activate
-pip install --upgrade pip
-pip install -r requirements.txt
+python3 -m venv "$DEST/.venv"
+"$DEST/.venv/bin/pip" install --upgrade pip
+"$DEST/.venv/bin/pip" install -r "$DEST/requirements.txt"
 
 step "写入默认 .deploy.env（保留已存在）"
 if [ ! -f "$DEST/.deploy.env" ]; then
-  cat > "$DEST/.deploy.env" <<'ENV'
-PORT=8000
+  cat > "$DEST/.deploy.env" <<'EOF'
+# ===== minipost 环境变量 =====
 HOST=0.0.0.0
-DB_URL=sqlite:///./huandan.sqlite3
+PORT=8000
+# SQLite：使用绝对路径，避免工作目录变化导致新文件
+DB_URL=sqlite:////opt/minipost/huandan.sqlite3
 SECRET_KEY=minipost-secret
 LOG_LEVEL=info
 AUTO_CLEAN_DAYS=30
-ENV
+EOF
   ok "已写入 $DEST/.deploy.env"
 else
-  ok "$DEST/.deploy.env 已存在，保持不变"
+  ok "已存在 $DEST/.deploy.env，跳过覆盖"
 fi
 
-step "安装 systemd 服务"
+step "创建日志与运行目录"
+install -d -m 0755 "$DEST/logs" "$DEST/updates" "$DEST/runtime"
+
+step "安装 systemd 服务（修复变量不展开 & 日志目录问题）"
 install -d /etc/systemd/system
 install -m 0644 "$DEST/scripts/systemd/minipost.service" /etc/systemd/system/minipost.service
 systemctl daemon-reload
