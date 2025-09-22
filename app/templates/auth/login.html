@@ -1,10 +1,15 @@
-<!doctype html>
-<html lang="zh-CN">
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>登录 - minipost</title>
-<body style="font:14px/1.6 -apple-system,BlinkMacSystemFont,Segoe UI,PingFang SC,Microsoft YaHei,sans-serif;padding:24px">
-  <h2>登录</h2>
-  <p>这里是临时占位登录页。后续可接入你现有的账号体系。</p>
-</body>
-</html>
+{% extends "_base/layout.html" %}
+{% block title %}登录 · minipost{% endblock %}
+{% block body %}
+  <div style="min-height:100dvh;display:grid;place-items:center;font-family:system-ui,-apple-system,'PingFang SC','Microsoft YaHei',sans-serif;background:#ffffff;">
+    <form style="width:min(360px,92vw);padding:20px;border:1px solid #e5e7eb;border-radius:16px;background:#fff;box-shadow:0 10px 30px rgba(0,0,0,.04)">
+      <h2 style="margin:0 0 16px;font-size:16px;color:#111827;">登录</h2>
+      <div style="display:grid;gap:10px">
+        <input type="text" placeholder="用户名" style="height:34px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;">
+        <input type="password" placeholder="密码" style="height:34px;border:1px solid #d1d5db;border-radius:10px;padding:0 10px;">
+        <button style="height:34px;border-radius:999px;border:0;background:#0a0a0a;color:#fff;cursor:pointer;">登录</button>
+      </div>
+      <p style="color:#6b7280;font-size:12px;margin-top:10px;">（占位页面，可根据现有认证对接）</p>
+    </form>
+  </div>
+{% endblock %}
