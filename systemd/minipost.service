@@ -1,0 +1,17 @@
+[Unit]
+Description=minipost (FastAPI) Service
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/minipost
+EnvironmentFile=/opt/minipost/.deploy.env
+ExecStartPre=/usr/bin/install -d -m 0755 /opt/minipost/logs
+ExecStart=/opt/minipost/.venv/bin/uvicorn app.main:app --host ${HOST} --port ${PORT}
+Restart=on-failure
+RestartSec=2s
+
+[Install]
+WantedBy=multi-user.target
