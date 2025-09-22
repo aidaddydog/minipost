@@ -5,7 +5,7 @@ from datetime import datetime
 from ..models.tables import OrderMapping, UploadLog
 
 def import_orders_mapping(db: Session, file_bytes: bytes, filename: str, order_col: str, tracking_col: str) -> dict:
-    # 解析 CSV/XLSX
+    # 解析 CSV/XLSX/XLS
     buf = io.BytesIO(file_bytes)
     if filename.lower().endswith('.csv'):
         df = pd.read_csv(buf, dtype=str)
