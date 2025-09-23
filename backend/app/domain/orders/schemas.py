@@ -13,6 +13,10 @@ class LabelRow(BaseModel):
     printed_at: Optional[datetime] = None
     # 新增：运输方式
     transport_mode: Optional[str] = None
+    class LabelRow(BaseModel):
+    # ...
+    transport_mode: str | None = None
+
 
 class UploadLogRow(BaseModel):
     id: str
