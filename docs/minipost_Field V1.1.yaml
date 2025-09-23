@@ -1,34 +1,4 @@
-entities:
-  label:
-    fields:
-      tracking_no:
-        title_zh: "运单号"
-        title_en: "Carrier Tracking No."
-        description_zh: "服务商提供的运单号（对外查询）"
-        type: string
-        unique: true
-      transfer_waybill_no:
-        title_zh: "转单号"
-        title_en: "Carrier Transfer Tracking No."
-        description_zh: "换单/转单后产生的服务商转单号"
-        aliases: ["transfer_tracking_no"]
-        type: string
-  waybill:
-    fields:
-      waybill_no:
-        title_zh: "系统运单号"
-        title_en: "Internal Waybill No."
-        description_zh: "自有物流体系内部运单号"
-        type: string
-        unique: true
-search:
-  label_upload:
-    keyword_fields:
-      - "sales_order.order_no"
-      - "label.tracking_no"
-      - "label.transfer_waybill_no"
-
-      # ============================================================
+# ============================================================
 # 文件：minipost_Field V1.1.yaml
 # 说明：本文件为「minipost」系统专用**统一标准字段清单**（ERP+OMS+TMS+WMS+换单/转单+财务/结算+集成/审计）。
 #       不包含任何第三方平台命名，字段名统一英文 snake_case，配中文字段名与用途说明。
@@ -611,7 +581,7 @@ entities:
     fields:
       - { zh: 运单号,         field: waybill_no,        type: string,   desc: "" }
       - { zh: 跟踪号,         field: tracking_no,       type: string,   desc: "" }
-      - { zh: 转单号,         field: transfer_waybill_no, type: string, desc: "换单/转签后分配的转单编号。" }
+      - { zh: 转单号,         field: transfer_waybill_no, type: string, desc: "换单/转签后分配的转单编号。", aliases: ["transfer_tracking_no"] }
       - { zh: 包裹ID,         field: package_id,        type: id,       desc: "" }
       - { zh: 渠道ID,         field: channel_id,        type: id,       desc: "" }
       - { zh: 承运商ID,       field: carrier_id,        type: id,       desc: "" }
