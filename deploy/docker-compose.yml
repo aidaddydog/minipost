@@ -1,5 +1,6 @@
 version: "3.9"
 name: minipost
+
 services:
   db:
     image: postgres:15
@@ -12,34 +13,48 @@ services:
       - dbdata:/var/lib/postgresql/data
     networks: [minipost_net]
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost}"]
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost} -d ${DB_NAME:-minipost}"]
       interval: 10s
       timeout: 5s
       retries: 20
 
   backend:
-    build: ../backend
+    build:
+      context: ../backend
     container_name: minipost_backend
-    depends_on: [db]
+    depends_on:
+      db:
+        condition: service_healthy
     environment:
-      DATABASE_URL: postgresql+asyncpg://${DB_USER:-minipost}:${DB_PASSWORD:-minipost}@db:5432/${DB_NAME:-minipost}
-      MINIPOST_APP_NAME: "Minipost ERP"
-      MINIPOST_API_PREFIX: "/api/v1"
-      MINIPOST_CORS_ORIGINS: "*"
-      MINIPOST_DEFAULT_TENANT_ID: "demo-tenant"
+      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-minipost}:${DB_PASSWORD:-minipost}@db:5432/${DB_NAME:-minipost}
+      - TZ=${TZ:-Asia/Shanghai}
     networks: [minipost_net]
+    healthcheck:
+      # 用自带 python 做健康检查，无需额外安装 curl
+      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\nu='http://127.0.0.1:8000/api/health'\n\
+try:\n urllib.request.urlopen(u, timeout=2)\n sys.exit(0)\n\
+except Exception:\n sys.exit(1)\nPY"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+      start_period: 10s
 
   web:
     build:
       context: ../frontend
+      args:
+        # 可选：国内环境可传一个 npm 源，构建会自动使用
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     container_name: minipost_web
-    depends_on: [backend]
+    depends_on:
+      backend:
+        condition: service_healthy
     ports:
       - "${WEB_HTTP_PORT:-80}:80"
     networks: [minipost_net]
 
 networks:
-  minipost_net:
+  minipost_net: {}
 
 volumes:
-  dbdata:
+  dbdata: {}
