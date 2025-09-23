@@ -1,60 +1,54 @@
-version: "3.9"
-name: minipost
+# deploy/docker-compose.yml
+# 说明：统一 Docker 编排，profiles: web, backend, postgres
+# 注意：若你已有反向代理（Caddy/Nginx/Traefik），可以把 web 的 8000:8000 暴露去掉，改走内网。
 
 services:
   db:
     image: postgres:15
     container_name: minipost_db
     environment:
-      POSTGRES_USER: ${DB_USER:-minipost}
-      POSTGRES_PASSWORD: ${DB_PASSWORD:-minipost}
-      POSTGRES_DB: ${DB_NAME:-minipost}
+      POSTGRES_USER: minipost
+      POSTGRES_PASSWORD: minipost
+      POSTGRES_DB: minipost
     volumes:
-      - dbdata:/var/lib/postgresql/data
-    networks: [minipost_net]
+      - db_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost} -d ${DB_NAME:-minipost}"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD-SHELL", "pg_isready -U minipost"]
+      interval: 5s
+      timeout: 3s
       retries: 20
+    profiles: ["postgres"]
 
   backend:
     build:
-      context: ../backend
+      context: ../
+      dockerfile: app/Dockerfile
+    image: minipost-backend
     container_name: minipost_backend
     depends_on:
       db:
         condition: service_healthy
     environment:
-      - DATABASE_URL=postgresql+asyncpg://${DB_USER:-minipost}:${DB_PASSWORD:-minipost}@db:5432/${DB_NAME:-minipost}
-      - TZ=${TZ:-Asia/Shanghai}
-    networks: [minipost_net]
-    healthcheck:
-      # 用自带 python 做健康检查，无需额外安装 curl
-      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request,sys\nu='http://127.0.0.1:8000/api/health'\n\
-try:\n urllib.request.urlopen(u, timeout=2)\n sys.exit(0)\n\
-except Exception:\n sys.exit(1)\nPY"]
-      interval: 5s
-      timeout: 3s
-      retries: 40
-      start_period: 10s
+      DB_URL: postgresql+psycopg2://minipost:minipost@db:5432/minipost
+      APP_ENV: production
+      APP_PORT: 8000
+    expose:
+      - "8000"
+    profiles: ["backend"]
 
   web:
     build:
-      context: ../frontend
-      args:
-        # 可选：国内环境可传一个 npm 源，构建会自动使用
-        NPM_REGISTRY: ${NPM_REGISTRY:-}
+      context: ../static
+      dockerfile: Dockerfile
+    image: minipost-web
     container_name: minipost_web
     depends_on:
-      backend:
-        condition: service_healthy
+      - backend
     ports:
-      - "${WEB_HTTP_PORT:-80}:80"
-    networks: [minipost_net]
-
-networks:
-  minipost_net: {}
+      - "8000:8000"     # 对外暴露管理端（如用公网反代，可改为 80/443）
+    environment:
+      UPSTREAM: http://backend:8000
+    profiles: ["web"]
 
 volumes:
-  dbdata: {}
+  db_data:
