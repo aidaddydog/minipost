@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # =========================================================
-# minipost 一键部署（零交互 · 极简进度条 · 失败必给一键日志指令 · 公网IP展示）
+# minipost 一键部署（零交互 · 每步进度条 · 失败自动打印日志 · 公网IP展示）
 # =========================================================
 set -Eeuo pipefail
 
-# ===== 主题 / 颜色 =====
+# ===== 主题配色（极简） =====
 COL_RESET="\033[0m"; COL_DIM="\033[2m"; COL_MUTE="\033[90m"
 COL_OK="\033[38;5;84m"; COL_WARN="\033[38;5;214m"; COL_ERR="\033[38;5;203m"
 COL_BAR_FG="\033[38;5;48m"; COL_BAR_BG="\033[38;5;240m"
@@ -15,27 +15,22 @@ show_cursor(){ tput cnorm 2>/dev/null || true; }
 on_exit(){ show_cursor; echo; }
 trap on_exit EXIT
 
-# ===== 进度条 =====
-STEP=0; STEPS=13
-pct(){ python3 - <<PY 2>/dev/null || awk 'BEGIN{print int('$1'/'$2'*100)}'
-print(int($1/$2*100))
-PY
-}
-bar_draw(){ # $1 pct, $2 msg
-  local p="$1"; local msg="$2"
-  [ "$p" -gt 100 ] && p=100
+# ===== 每步进度条 =====
+step_bar(){
+  # step_bar <pct> <msg>
+  local p="$1"; shift; [ "$p" -gt 100 ] && p=100
+  local msg="$*"
   local fill=$(( p*BAR_LEN/100 )); [ $fill -gt $BAR_LEN ] && fill=$BAR_LEN
   local empty=$(( BAR_LEN-fill ))
   local filled=$(printf '█%.0s' $(seq 1 $fill))
   local blanks=$(printf '░%.0s' $(seq 1 $empty))
   printf "\r ${COL_BAR_FG}[${filled}${COL_BAR_BG}${blanks}${COL_BAR_FG}]${COL_RESET} %3d%%  %s" "$p" "$msg"
 }
+step_ok(){ printf "  ${COL_OK}✓${COL_RESET}\n"; }
+step_warn(){ printf "  ${COL_WARN}⚠${COL_RESET}\n"; }
+step_err(){ printf "  ${COL_ERR}✘${COL_RESET}\n"; }
 
-ok_mark(){ printf "  ${COL_OK}✓${COL_RESET}\n"; }
-warn_mark(){ printf "  ${COL_WARN}⚠${COL_RESET}\n"; }
-err_mark(){ printf "  ${COL_ERR}✘${COL_RESET}\n"; }
-
-# ===== 变量 / 日志 =====
+# ===== 变量 / 默认值 =====
 set +u
 [ -f ".deploy.env" ] && { set -a; . ".deploy.env"; set +a; }
 [ -f "/opt/minipost/.deploy.env" ] && { set -a; . "/opt/minipost/.deploy.env"; set +a; }
@@ -46,11 +41,10 @@ set +u
 : "${EDITOR_PORT:=6006}"
 : "${EDITOR_USER:=daddy}"
 : "${EDITOR_PASS:=20240314AaA#}"
-: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"   # 运行中可能被改写为 .repo 路径
+: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"     # 运行中可能被改写为 .repo 路径
 : "${COMPOSE_PROFILES:=web,backend,postgres,editor}"
 : "${AUTO_OPEN_UFW:=yes}"
-
-# 零交互最佳默认（可用 .deploy.env 覆盖）
+# —— 零交互最佳默认（可在 .deploy.env 覆盖）——
 : "${AUTO_PRUNE_OLD:=no}"
 : "${DO_BACKUP_DATA:=yes}"
 : "${AUTO_FAIL2BAN:=yes}"
@@ -70,12 +64,15 @@ LOG_FILE="${BASE_DIR}/logs/bootstrap_$(date +%Y%m%d_%H%M%S).log"
 ln -sfn "$LOG_FILE" "${BASE_DIR}/logs/bootstrap.latest.log"
 
 # ===== 工具函数 =====
+log(){ echo "[$(date +%F' '%T)] $*" >>"$LOG_FILE"; }
+
 ensure_env_var(){ # ensure_env_var KEY VAL
   local k="$1" v="$2" f="${BASE_DIR}/.deploy.env"
   install -d -m 0755 "${BASE_DIR}"
   [ -f "$f" ] || { echo "# minipost 部署环境（自动生成）" > "$f"; chmod 600 "$f"; }
   grep -q "^${k}=" "$f" 2>/dev/null || echo "${k}=${v}" >> "$f"
 }
+
 merge_daemon_json(){ # merge_daemon_json '.["key"]' 'json'
   local key="$1" value="$2" f="/etc/docker/daemon.json"
   install -d -m 0755 /etc/docker
@@ -83,6 +80,7 @@ merge_daemon_json(){ # merge_daemon_json '.["key"]' 'json'
   local tmp; tmp="$(mktemp)"
   jq "$key = $value" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"
 }
+
 detect_public_ip(){
   local ip=""
   ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
@@ -92,60 +90,70 @@ detect_public_ip(){
   echo "${ip:-未知}"
 }
 
-# ——失败时：打印“一键日志指令”（可直接复制粘贴）——
-fail_with_help(){ # $1 描述
-  local desc="$1"
-  show_cursor
-  echo
-  echo -e "${COL_ERR}✘ 失败：${desc}${COL_RESET}"
-  echo -e "${COL_DIM}请复制执行以下任一命令查看详情：${COL_RESET}"
-  echo "  tail -n 200 ${BASE_DIR}/logs/bootstrap.latest.log"
-  echo "  docker compose -f ${COMPOSE_FILE} logs backend --tail=200"
-  echo "  docker compose -f ${COMPOSE_FILE} logs editor  --tail=200"
+dump_failure(){
+  # 自动打印关键日志（便于直接看到错误内容）
+  echo -e "\n———— ${COL_ERR}失败日志（末尾 200 行）${COL_RESET} ————"
+  echo "tail -n 200 ${BASE_DIR}/logs/bootstrap.latest.log"
+  tail -n 200 "${BASE_DIR}/logs/bootstrap.latest.log" 2>/dev/null || true
+  if [ -f "${COMPOSE_FILE}" ]; then
+    echo -e "\n—— backend 容器日志（末尾 200 行） ——"
+    echo "docker compose -f ${COMPOSE_FILE} logs backend --tail=200"
+    docker compose -f "${COMPOSE_FILE}" logs backend --tail=200 2>/dev/null || true
+    echo -e "\n—— editor 容器日志（末尾 200 行） ——"
+    echo "docker compose -f ${COMPOSE_FILE} logs editor --tail=200"
+    docker compose -f "${COMPOSE_FILE}" logs editor  --tail=200 2>/dev/null || true
+  fi
+  echo -e "\n${COL_DIM}更多请执行：${COL_RESET}"
+  echo "  docker compose -f ${COMPOSE_FILE} ps"
+  echo "  tail -n 500 ${BASE_DIR}/logs/bootstrap.latest.log"
+}
+
+fail_and_exit(){
+  local why="$1"
+  show_cursor; echo
+  echo -e "${COL_ERR}✘ 失败：${why}${COL_RESET}"
+  dump_failure
   exit 1
 }
 
-# 带旋转动画的任务
-spin_run(){ # spin_run "描述" "命令"
-  local desc="$1"; shift; local cmd="$*"
-  STEP=$((STEP+1)); local p=$(pct $STEP $STEPS)
-  hide_cursor; bar_draw "$p" "${desc}…"
+run_step(){ # run_step "标题" "命令"
+  local title="$1"; shift; local cmd="$*"
+  hide_cursor
+  step_bar 7  "${title}…"
   { bash -lc "$cmd" >>"$LOG_FILE" 2>&1; echo $? >"$LOG_FILE.rc"; } &
-  local pid=$! i=0
+  local pid=$! i=0 p=7
   while kill -0 $pid 2>/dev/null; do
-    printf "\r "; bar_draw "$p" "${desc}… ${COL_MUTE}${SPIN[$((i%${#SPIN[@]}))]}${COL_RESET}"
-    i=$((i+1)); sleep 0.1
+    p=$(( (p+2) )); [ $p -gt 96 ] && p=96
+    printf "\r "; step_bar "$p" "${title}… ${SPIN[$((i%${#SPIN[@]}))]}"
+    i=$((i+1)); sleep 0.12
   done
   local rc=$(cat "$LOG_FILE.rc" 2>/dev/null || echo 1); rm -f "$LOG_FILE.rc"
-  printf "\r "; bar_draw "$p" "${desc}"
-  if [ $rc -eq 0 ]; then ok_mark; else err_mark; fail_with_help "$desc"; fi
+  printf "\r "; step_bar 100 "${title}"
+  if [ $rc -eq 0 ]; then step_ok; else step_err; fail_and_exit "${title}"; fi
 }
 
-# 静默任务（无动画）
-run_silent(){ # run_silent "描述" "命令"
-  local desc="$1"; shift; local cmd="$*"
-  STEP=$((STEP+1)); local p=$(pct $STEP $STEPS)
-  hide_cursor; bar_draw "$p" "${desc}…"
+run_step_silent(){ # 不需要动画的短任务
+  local title="$1"; shift; local cmd="$*"
+  hide_cursor; printf "\n "; step_bar 0 "${title}…"
   if bash -lc "$cmd" >>"$LOG_FILE" 2>&1; then
-    printf "\r "; bar_draw "$p" "${desc}"; ok_mark
+    printf "\r "; step_bar 100 "${title}"; step_ok
   else
-    printf "\r "; bar_draw "$p" "${desc}"; err_mark; fail_with_help "$desc"
+    printf "\r "; step_bar 100 "${title}"; step_err; fail_and_exit "${title}"
   fi
 }
 
-# ===== 开始 =====
 echo -e "${COL_DIM}安装日志 -> ${LOG_FILE}${COL_RESET}"
 [ "$(id -u)" -eq 0 ] || { echo -e "${COL_ERR}✘ 需要 root 运行${COL_RESET}"; exit 1; }
 
-# 1/13 基础依赖
-spin_run "安装基础依赖" "
+# 01 安装基础依赖
+run_step "安装基础依赖" "
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
   apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools fail2ban unattended-upgrades
 "
 
-# 2/13 Docker & Compose
-spin_run "安装/校验 Docker + Compose" "
+# 02 安装/校验 Docker + Compose
+run_step "安装/校验 Docker + Compose" "
   install -d -m 0755 /etc/apt/keyrings
   if ! command -v docker >/dev/null 2>&1; then
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor >/etc/apt/keyrings/docker.gpg 2>/dev/null || true
@@ -159,8 +167,8 @@ spin_run "安装/校验 Docker + Compose" "
   docker compose version >/dev/null 2>&1
 "
 
-# 3/13 Docker 守护进程优化 + 镜像加速
-spin_run "优化 Docker 守护进程" "
+# 03 Docker 守护进程优化 + 镜像加速器
+run_step "优化 Docker 守护进程" "
   probe(){ code=\$(curl -m 3 -fsIX GET \"\$1/v2/\" -o /dev/null -w '%{http_code}' 2>/dev/null || echo); case \"\$code\" in 200|401|403) return 0;; *) return 1;; esac; }
   MIRR=()
   [ -n \"$DOCKER_MIRROR_URL\" ] && { IFS=', ' read -r -a UMS <<< \"$DOCKER_MIRROR_URL\"; for u in \"\${UMS[@]}\"; do [ -n \"\$u\" ] && MIRR+=(\"\$u\"); done; }
@@ -177,8 +185,8 @@ spin_run "优化 Docker 守护进程" "
   systemctl restart docker
 "
 
-# 4/13 ulimits
-run_silent "设置 ulimits" "
+# 04 设置 ulimits
+run_step_silent "设置 ulimits" "
   cat >/etc/security/limits.d/99-erp-oms.conf <<'EOF'
 * soft nofile 1048576
 * hard nofile 1048576
@@ -189,8 +197,8 @@ EOF
   systemctl restart docker
 "
 
-# 5/13 ZRAM / Swap
-run_silent "配置 ZRAM/Swap" "
+# 05 配置 ZRAM / Swap
+run_step_silent "配置 ZRAM/Swap" "
   MEM_GB=\$(awk '/MemTotal/{printf \"%.0f\", \$2/1024/1024}' /proc/meminfo)
   if [ \"$AUTO_ZRAM_SWAP\" = \"yes\" ]; then
     if [ \"\$MEM_GB\" -le 8 ]; then
@@ -215,8 +223,8 @@ EOF
   fi
 "
 
-# 6/13 关闭 THP
-run_silent "关闭 THP" "
+# 06 关闭 THP
+run_step_silent "关闭 THP" "
   cat >/etc/systemd/system/disable-thp.service <<'EOF'
 [Unit]
 Description=Disable Transparent Huge Pages
@@ -233,8 +241,8 @@ EOF
   systemctl enable --now disable-thp.service
 "
 
-# 7/13 BBR + sysctl
-run_silent "应用 BBR + sysctl" "
+# 07 应用 BBR + sysctl
+run_step_silent "应用 BBR + sysctl" "
   [ \"$AUTO_TUNE_NET\" = \"yes\" ] || exit 0
   cat >/etc/sysctl.d/90-erp-oms.conf <<'EOF'
 net.core.default_qdisc=fq
@@ -251,8 +259,8 @@ EOF
   sysctl --system >/dev/null 2>&1 || true
 "
 
-# 8/13 安全基线
-run_silent "启用安全组件" "
+# 08 启用安全组件
+run_step_silent "启用安全组件" "
   [ \"$AUTO_FAIL2BAN\" = \"yes\" ] && systemctl enable --now fail2ban || true
   [ \"$AUTO_UNATTENDED_UPDATES\" = \"yes\" ] && systemctl enable --now unattended-upgrades || true
   if command -v ufw >/dev/null 2>&1 && [ \"$AUTO_OPEN_UFW\" = \"yes\" ]; then
@@ -264,8 +272,8 @@ run_silent "启用安全组件" "
   fi
 "
 
-# 9/13 回写 .deploy.env（你刚才卡在这里——现在失败会给一键日志指令）
-run_silent "写入部署环境参数" "
+# 09 写入部署环境参数（你之前失败的点，这里也会自动打印日志）
+run_step_silent "写入部署环境参数" "
   ensure_env_var APP_PORT \"${APP_PORT}\"
   ensure_env_var EDITOR_PORT \"${EDITOR_PORT}\"
   ensure_env_var EDITOR_USER \"${EDITOR_USER}\"
@@ -274,8 +282,8 @@ run_silent "写入部署环境参数" "
   ensure_env_var AUTO_OPEN_UFW \"${AUTO_OPEN_UFW}\"
 "
 
-# 10/13 同步仓库（自动 Adopt）
-spin_run "同步仓库" "
+# 10 同步仓库（自动 Adopt 接管）
+run_step "同步仓库（标准/Adopt 自动）" "
   REPO_DIR='${BASE_DIR}'; USE_ADOPT='no'
   if [ -d '${BASE_DIR}' ] && [ ! -d '${BASE_DIR}/.git' ]; then
     USE_ADOPT='yes'; REPO_DIR='${BASE_DIR}/.repo'
@@ -298,8 +306,8 @@ COMPOSE_FILE="$(cat "${BASE_DIR}/.compose.path" 2>/dev/null || echo "${COMPOSE_F
 export COMPOSE_FILE
 ensure_env_var COMPOSE_FILE "${COMPOSE_FILE}"
 
-# 11/13 备份 & 二次覆盖
-run_silent "备份数据/清理旧容器" "
+# 11 备份数据 / 二次覆盖
+run_step_silent "备份数据/清理旧容器" "
   if [ \"${DO_BACKUP_DATA}\" = 'yes' ] && [ -d '${BASE_DIR}/data' ]; then
     BDIR='${BASE_DIR}/backup/$(date +%Y%m%d_%H%M%S)'
     install -d -m 0755 \"\$BDIR\"
@@ -312,32 +320,33 @@ run_silent "备份数据/清理旧容器" "
   fi
 "
 
-# 12/13 构建
-spin_run "构建镜像（web+backend+postgres+editor）" "
+# 12 构建镜像
+run_step "构建镜像（web+backend+postgres+editor）" "
   COMPOSE_PROFILES='${COMPOSE_PROFILES}' docker compose -f '${COMPOSE_FILE}' build
 "
 
-# 13/13 启动
-spin_run "启动服务" "
+# 13 启动服务
+run_step "启动服务" "
   COMPOSE_PROFILES='${COMPOSE_PROFILES}' docker compose -f '${COMPOSE_FILE}' up -d
 "
 
-# —— 迁移（限时重试，不阻塞）——
-STEP=$STEPS; p=$(pct $STEPS $STEPS); bar_draw "$p" "执行数据库迁移（限时重试）…"
+# —— 迁移（额外步骤：限时重试 & 失败自动打印日志）——
+hide_cursor
+printf "\n "; step_bar 0 "执行数据库迁移（限时重试）…"
 migrate_try(){ timeout 90s docker compose -f "${COMPOSE_FILE}" exec -T backend sh -lc 'python -m alembic upgrade head' >>"$LOG_FILE" 2>&1; }
 if migrate_try; then
-  printf "\r "; bar_draw 100 "迁移完成"; ok_mark
+  printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_ok
 else
   sleep 5
   if migrate_try; then
-    printf "\r "; bar_draw 100 "迁移完成（重试）"; ok_mark
+    printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_ok
   else
-    printf "\r "; bar_draw 100 "迁移失败"; warn_mark
-    fail_with_help "数据库迁移（alembic upgrade head）"
+    printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_warn
+    fail_and_exit "数据库迁移（alembic upgrade head）"
   fi
 fi
 
-# —— 收尾：端口探测（不阻塞）——
+# —— 端口探测（非阻塞）——
 curl -fsSI --max-time 3 "http://127.0.0.1:${APP_PORT}/" >/dev/null 2>&1 || true
 curl -fsSI --max-time 3 "http://127.0.0.1:${EDITOR_PORT}/login" >/dev/null 2>&1 || true
 
