@@ -1,13 +1,28 @@
+# -*- coding: utf-8 -*-
 from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from app.core.config import settings
-from app.core.middleware.tenant import TenantMiddleware
-from app.api.v1 import api_router
+from fastapi.responses import JSONResponse
+import logging
 
-app = FastAPI(title=settings.app_name)
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
-app.add_middleware(TenantMiddleware)
-app.include_router(api_router, prefix=settings.api_prefix)
+from .db import ping_db
 
-@app.get("/api/health")
-async def health(): return {"ok": True}
+log = logging.getLogger("uvicorn.error")
+
+app = FastAPI(title="minipost API")
+
+@app.get("/healthz", include_in_schema=False)
+async def healthz():
+    try:
+        await ping_db()
+        return {"ok": True}
+    except Exception as e:
+        # 健康检查非致命：返回 500 也不让进程崩
+        return JSONResponse({"ok": False, "err": str(e)}, status_code=500)
+
+@app.on_event("startup")
+async def on_startup():
+    # 启动阶段做一次非致命 ping，失败仅日志告警
+    try:
+        await ping_db()
+        log.info("DB ping ok")
+    except Exception as e:
+        log.warning("DB ping failed on startup: %s", e)
