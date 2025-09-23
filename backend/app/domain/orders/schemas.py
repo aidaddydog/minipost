@@ -11,13 +11,8 @@ class LabelRow(BaseModel):
     status_text: str
     created_at: Optional[datetime] = None
     printed_at: Optional[datetime] = None
-    # 新增：运输方式
+    # 运输方式（来自 waybill.transport_mode）
     transport_mode: Optional[str] = None
-    
-class LabelRow(BaseModel):
-    # ...
-    transport_mode: str | None = None
-
 
 class UploadLogRow(BaseModel):
     id: str
