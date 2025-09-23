@@ -1,10 +1,13 @@
 <template>
-  <header style="display:flex;gap:12px;padding:10px 16px;border-bottom:1px solid #eee">
-    <strong>Minipost</strong>
-    <router-link to="/orders/label-upload/list">面单列表</router-link>
-    <router-link to="/orders/label-upload/logs">上传记录</router-link>
-    <router-link to="/orders/label-upload/tasks">换单任务</router-link>
-    <router-link to="/orders/label-upload/audit">换单审计</router-link>
-  </header>
-  <main style="padding:16px"><router-view/></main>
+  <!-- 根组件仅渲染路由视图 -->
+  <router-view />
 </template>
+
+<script setup lang="ts">
+// 全局样式导入
+import './styles/huandan-ui.css';
+</script>
+
+<style scoped>
+/* 根组件无需额外样式 */
+</style>
