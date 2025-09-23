@@ -1,5 +1,0 @@
-html, body { height:100%; }
-body{ margin:0; background:var(--page-bg); color:var(--text); font-family:var(--font-family); font-size:var(--font-size-base); line-height:var(--line-height-base); }
-.shell{ max-width:var(--maxw); margin:0 auto; padding:var(--page-pt) var(--page-px) var(--page-pb); }
-.hidden{ display:none; }
-.input, .select, .btn{ font-size:var(--ctl-font-size); }
