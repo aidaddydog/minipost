@@ -82,11 +82,41 @@ for P in "$WEB_HTTP_PORT" 443; do
   fi
 done
 
-# ===== 4. 构建 & 启动 =====
-info "构建并启动 Docker Compose"
-spin_start "docker compose up -d --build"
-docker compose -f "$COMPOSE_FILE" up -d --build >/dev/null 2>&1 || {{ spin_stop; err "编排启动失败"; exit 1; }}
-spin_stop; ok "容器已启动"
+# ===== 端口占用兜底（变量区之后、Step 7 之前放置）=====
+if command -v ss >/dev/null 2>&1; then
+  if ss -ltnp | grep -q ':80 '; then
+    if ! grep -q '^WEB_HTTP_PORT=' "$ENV_FILE"; then
+      warn "检测到 80 端口被占用，将在本次部署使用 8080（可在 .deploy.env 中自定义 WEB_HTTP_PORT）"
+      sed -i 's/^WEB_HTTP_PORT=.*/WEB_HTTP_PORT=8080/' "$ENV_FILE" || true
+      export WEB_HTTP_PORT=8080
+    fi
+  fi
+fi
+
+# ===== 构建并启动（替换原来的 Step 7）=====
+info "启动编排：web + backend + postgres"
+cd "$BASE_DIR"
+set +e
+if [ "${MINIPOST_DEBUG:-0}" = "1" ]; then
+  docker compose -f "$COMPOSE_FILE" pull
+  docker compose -f "$COMPOSE_FILE" build --progress=plain || EXIT_CODE=$?
+  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans || EXIT_CODE=${EXIT_CODE:-$?}
+else
+  docker compose -f "$COMPOSE_FILE" pull >/dev/null 2>&1
+  docker compose -f "$COMPOSE_FILE" build --progress=plain || EXIT_CODE=$?
+  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1 || EXIT_CODE=${EXIT_CODE:-$?}
+fi
+set -e
+if [ -n "${EXIT_CODE:-}" ]; then
+  err "编排启动失败（EXIT_CODE=$EXIT_CODE）。以下为最近输出，便于快速定位："
+  docker compose -f "$COMPOSE_FILE" ps
+  docker compose -f "$COMPOSE_FILE" logs -n 200 db || true
+  docker compose -f "$COMPOSE_FILE" logs -n 200 backend || true
+  docker compose -f "$COMPOSE_FILE" logs -n 200 web || true
+  exit $EXIT_CODE
+fi
+ok "容器已启动"
+
 
 # ===== 5. 健康检查 =====
 BACKOFF=(2 3 5 8 13)
