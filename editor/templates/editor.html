@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>前端模版编辑器</title>
+  <link rel="stylesheet" href="/static/editor.css"/>
+  <script>
+    window.require = { paths: { 'vs': 'https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs' } };
+  </script>
+  <script src="https://cdn.jsdelivr.net/npm/monaco-editor@0.47.0/min/vs/loader.js"></script>
+</head>
+<body>
+  <div class="header">
+    <div class="title">前端模版编辑器 <span class="badge" id="userBadge">已登录</span></div>
+    <div class="toolbar">
+      <button class="btn" onclick="bundle('js')">一键打包 JS</button>
+      <button class="btn" onclick="bundle('css')">一键打包 CSS</button>
+      <button class="btn" onclick="newFile()">新增页面/文件</button>
+      <button class="btn" onclick="newFolder()">新增资源包目录</button>
+      <button class="btn primary" onclick="exportZip()">导出前端 ZIP（覆盖 GIT）</button>
+      <a class="btn ghost" href="/logout">退出</a>
+    </div>
+  </div>
+
+  <div class="layout">
+    <!-- 左：模版列表 -->
+    <div class="card">
+      <div class="list-head">
+        <div class="search"><input type="text" id="kw" placeholder="搜索（中文名/释义/文件名）" oninput="render()"/></div>
+        <div class="hint">共 <span id="cnt">0</span> 个</div>
+      </div>
+      <div class="table" id="table"></div>
+    </div>
+
+    <!-- 右：编辑 + 预览 -->
+    <div class="card editor">
+      <div class="list-head">
+        <div class="hint" id="currentFile">未选择文件</div>
+        <div class="toolbar">
+          <button class="btn" onclick="preview()">预览</button>
+          <button class="btn primary" onclick="save()">保存（立即生效）</button>
+          <label class="select">
+            <select id="restoreSel" onchange="restore()"><option value="">恢复备份（最近10次）</option></select>
+          </label>
+        </div>
+      </div>
+      <div id="editorHost"></div>
+      <div class="preview-wrap">
+        <div class="preview-head">
+          <div class="hint">右侧默认空白，点击“预览”后生成。</div>
+          <div class="actions">
+            <span class="hint" id="previewHint"></span>
+          </div>
+        </div>
+        <div class="preview-body"><iframe id="prev" srcdoc=""></iframe></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="footer">
+    提示：列表包含 <code>backend/templates</code>、<code>backend/static</code>、<code>frontend/src</code>、<code>frontend/public</code>、以及 <code>editor</code>（编辑器自身）。
+    中文名与释义由 <code>editor/config/templates_map.yaml</code> 维护，也可在列表中点击“信息”在线修改。
+  </div>
+
+<script>
+let editor, currentPath = "", files = [], mapping = {};
+
+require(['vs/editor/editor.main'], function() {
+  editor = monaco.editor.create(document.getElementById('editorHost'), {
+    value: "", language: "html", theme: "vs-dark", automaticLayout: true,
+    minimap:{enabled:false}, fontSize: 14, roundedSelection: true
+  });
+  Promise.all([loadList(), loadMap()]).then(()=>render());
+});
+
+async function loadList(){
+  const res = await fetch('/api/list');
+  files = await res.json();
+}
+async function loadMap(){
+  const res = await fetch('/api/map');
+  mapping = await res.json();
+}
+function render(){
+  const kw = document.getElementById('kw').value.trim().toLowerCase();
+  const table = document.getElementById('table');
+  table.innerHTML = '';
+  const rows = [rowHead()];
+  let n = 0;
+  for(const f of files){
+    const text = (f.cn || '') + ' ' + (f.desc || '') + ' ' + f.path;
+    if(kw && !text.toLowerCase().includes(kw)) continue;
+    n++;
+    rows.push(rowItem(f));
+  }
+  document.getElementById('cnt').textContent = String(n);
+  table.append(...rows);
+}
+function rowHead(){
+  const r = document.createElement('div');
+  r.className='row header';
+  r.innerHTML = '<div>中文名 / 模版</div><div>中文释义</div><div>类型</div><div class="actions">操作</div>';
+  return r;
+}
+function rowItem(f){
+  const r = document.createElement('div');
+  r.className = 'row';
+  const desc = escapeHtml(f.desc || '（未填写）');
+  r.innerHTML = `
+    <div class="cell-cn"><strong>${escapeHtml(f.cn||'未命名')}</strong><small><code>${escapeHtml(f.path)}</code></small></div>
+    <div>${desc}</div>
+    <div>${escapeHtml(f.kind)}</div>
+    <div class="actions">
+      <button class="btn" onclick="edit('${encodeURIComponent(f.path)}')">编辑</button>
+      <button class="btn" onclick="editInfo('${encodeURIComponent(f.path)}','${escapeAttr(f.cn||'')}','${escapeAttr(f.desc||'')}')">信息</button>
+      <button class="btn" onclick="downloadOne('${encodeURIComponent(f.path)}')">导出</button>
+    </div>`;
+  return r;
+}
+function escapeHtml(s){return s.replace(/[&<>"]/g, m=>({"&":"&amp;","<":"&lt;",">":"&gt;",""":"&quot;"}[m]))}
+function escapeAttr(s){return s.replace(/['"\]/g, m=>({"'":"&#39;",""":"&quot;","\":"\\"}[m]))}
+
+async function edit(encPath){
+  const path = decodeURIComponent(encPath);
+  currentPath = path;
+  const r = await fetch('/api/file?path='+encodeURIComponent(path));
+  if(!r.ok){ alert('读取失败'); return; }
+  const data = await r.json();
+  document.getElementById('currentFile').textContent = '正在编辑：'+path;
+  const lang = guessLang(path);
+  monaco.editor.setModelLanguage(editor.getModel(), lang);
+  editor.setValue(data.content);
+  const b = await (await fetch('/api/backups?path='+encodeURIComponent(path))).json();
+  const sel = document.getElementById('restoreSel');
+  sel.innerHTML = '<option value="">恢复备份（最近10次）</option>' + b.map(x=>`<option value="${x.ts}">${x.time}</option>`).join('');
+  document.getElementById('prev').srcdoc = "";
+  document.getElementById('previewHint').textContent = "";
+}
+function guessLang(path){
+  if(path.endsWith('.html')||path.endsWith('.htm')) return 'html';
+  if(path.endsWith('.css')) return 'css';
+  if(path.endsWith('.js')||path.endsWith('.mjs')) return 'javascript';
+  if(path.endsWith('.ts')||path.endsWith('.tsx')) return 'typescript';
+  if(path.endsWith('.svg')||path.endsWith('.xml')) return 'xml';
+  if(path.endsWith('.py')) return 'python';
+  return 'plaintext';
+}
+async function preview(){
+  if(!currentPath){ alert('请先选择文件'); return; }
+  const r = await fetch('/api/preview?path='+encodeURIComponent(currentPath));
+  const html = await r.text();
+  document.getElementById('prev').srcdoc = html;
+  document.getElementById('previewHint').textContent = '已生成预览（不影响保存的文件）。';
+}
+async function save(){
+  if(!currentPath){ alert('请先选择文件'); return; }
+  const content = editor.getValue();
+  const r = await fetch('/api/save', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path: currentPath, content})});
+  const j = await r.json();
+  if(j.ok){ alert('已保存（立即生效）。'); } else { alert('保存失败：'+(j.err||'')); }
+}
+async function restore(){
+  const sel = document.getElementById('restoreSel');
+  if(!sel.value) return;
+  if(!confirm('确认恢复该版本并覆盖当前文件？')){ sel.value=''; return; }
+  const r = await fetch('/api/restore', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path: currentPath, ts: sel.value})});
+  const j = await r.json();
+  if(j.ok){ editor.setValue(j.content||''); alert('已恢复。'); } else { alert('恢复失败'); }
+  sel.value = '';
+}
+async function bundle(type){
+  const r = await fetch('/api/bundle?type='+type, {method:'POST'});
+  const j = await r.json();
+  if(!j.ok){ alert('打包失败：'+(j.err||'')); return; }
+  alert('已生成 '+type.toUpperCase()+' 包：'+j.filename+'\n可在“导出前端ZIP”中一并打包。');
+}
+async function exportZip(){
+  const a = document.createElement('a');
+  a.href = '/api/export/zip';
+  a.click();
+}
+async function newFile(){
+  const rel = prompt('新文件存放相对路径（如 backend/templates/new.html 或 editor/templates/style.css）');
+  if(!rel) return;
+  const init = prompt('初始内容（可留空）') || '';
+  const r = await fetch('/api/new', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path: rel, content: init})});
+  const j = await r.json();
+  if(j.ok){ await loadList(); render(); alert('已创建：'+rel); } else { alert('失败：'+(j.err||'')); }
+}
+async function newFolder(){
+  const rel = prompt('新目录相对路径（如 backend/static/svg 或 editor/static/icons）');
+  if(!rel) return;
+  const r = await fetch('/api/mkdir', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path: rel})});
+  const j = await r.json();
+  if(j.ok){ await loadList(); render(); alert('已创建目录：'+rel); } else { alert('失败：'+(j.err||'')); }
+}
+async function downloadOne(encPath){
+  const a = document.createElement('a');
+  a.href = '/api/export/one?path='+encPath;
+  a.click();
+}
+async function editInfo(encPath, oldCn, oldDesc){
+  const path = decodeURIComponent(encPath);
+  const cn = prompt('中文名：', oldCn || '') ?? '';
+  if(cn === null) return;
+  const desc = prompt('中文释义（模板用途说明）：', oldDesc || '') ?? '';
+  const r = await fetch('/api/map/set', {method:'POST', headers:{'Content-Type':'application/json'},
+    body: JSON.stringify({path, cn, desc})});
+  const j = await r.json();
+  if(j.ok){ await loadList(); await loadMap(); render(); alert('已更新中文名/释义'); } else { alert('更新失败：'+(j.err||'')); }
+}
+</script>
+</body>
+</html>

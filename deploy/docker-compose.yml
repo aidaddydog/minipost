@@ -1,9 +1,7 @@
 # deploy/docker-compose.yml
-# 说明：统一 Docker 编排（profiles: web, backend, postgres）
-# 变更要点：
-# 1) web 的构建上下文从 ../static 改为 ../frontend，并把端口改为 8000:80（Caddy 监听 80）
-# 2) backend 的构建上下文改为 ../backend，Dockerfile 为其目录内的 Dockerfile
-# 3) 增加 backend 健康检查；各服务加 restart: unless-stopped
+# 说明：统一 Docker 编排（profiles: web, backend, postgres, editor）
+# - 新增 editor：独立前端模版编辑器（默认端口 6006，可通过 EDITOR_PORT 覆盖）
+# - 提示：如需“模板保存即生效”，后端模板建议启用 Jinja 自动重载（本文件已为 backend 注入 JINJA_AUTO_RELOAD=1）。
 
 services:
   db:
@@ -25,7 +23,7 @@ services:
 
   backend:
     build:
-      context: ../backend          # ← 关键：切到真实后端目录
+      context: ../backend
       dockerfile: Dockerfile
     image: minipost-backend
     container_name: minipost_backend
@@ -36,9 +34,13 @@ services:
       DB_URL: postgresql+psycopg2://minipost:minipost@db:5432/minipost
       APP_ENV: production
       APP_PORT: 8000
+      JINJA_AUTO_RELOAD: "1"       # 建议后端读取此变量以启用 Jinja 模板自动重载
     expose:
       - "8000"
-    # 用 Python 自带库做健康检查，避免额外安装 curl/wget
+    # 如需“保存即生效”并且后端代码从 /app/app/templates / /app/app/static 读文件，可打开以下挂载（按实际路径调整）：
+    # volumes:
+    #   - ../backend/templates:/app/app/templates:rw
+    #   - ../backend/static:/app/app/static:rw
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=2)"]
       interval: 5s
@@ -49,20 +51,37 @@ services:
 
   web:
     build:
-      context: ../frontend          # ← 关键：改为真实前端目录
-      dockerfile: Dockerfile
-      args:
-        # 可选：在大陆环境可传镜像源加速 npm（留空则不设置）
-        NPM_REGISTRY: ${NPM_REGISTRY:-}
+      context: ../frontend
     image: minipost-web
     container_name: minipost_web
     depends_on:
       backend:
-        condition: service_started  # Caddy 可先起；若要等后端健康，也可改 service_healthy
+        condition: service_started
     ports:
-      - "8000:80"                   # ← 关键：宿主 8000 -> 容器 80（Caddy 监听 80）
+      - "8000:80"                   # 宿主 8000 -> 容器 80（Caddy/静态服务监听 80）
     restart: unless-stopped
     profiles: ["web"]
+
+  editor:
+    build:
+      context: ../editor
+      dockerfile: Dockerfile
+    image: minipost-editor
+    container_name: minipost_editor
+    environment:
+      ROOT_DIR: /workspace
+      EDITOR_USER: ${EDITOR_USER:-daddy}
+      EDITOR_PASS: ${EDITOR_PASS:-20240314AaA#}
+      EDITOR_PORT: ${EDITOR_PORT:-6006}
+    ports:
+      - "${EDITOR_PORT:-6006}:6006"
+    volumes:
+      - ..:/workspace:rw
+    # 如强制使用 <1024 端口（例如 6），可加：cap_add: ["NET_BIND_SERVICE"]
+    # cap_add:
+    #   - NET_BIND_SERVICE
+    restart: unless-stopped
+    profiles: ["editor"]
 
 volumes:
   db_data:
