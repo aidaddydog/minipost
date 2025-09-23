@@ -252,7 +252,7 @@ run_step "启动服务" "COMPOSE_PROFILES='${COMPOSE_PROFILES}' docker compose -
 
 # —— 迁移（限时重试 + 失败自动打印日志）——
 hide_cursor; printf "\n "; step_bar 0 "执行数据库迁移（限时重试）…"
-migrate_try(){ timeout 90s docker compose -f "${COMPOSE_FILE}" exec -T backend sh -lc 'python -m alembic upgrade head' >>"$LOG_FILE" 2>&1; }
+migrate_try(){ timeout 90s docker compose -f "${COMPOSE_FILE}" exec -T backend sh -lc 'python -m alembic upgrade heads' >>"$LOG_FILE" 2>&1; }
 if migrate_try; then printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_ok
 else sleep 5; if migrate_try; then printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_ok
 else printf "\r "; step_bar 100 "执行数据库迁移（限时重试）"; step_warn; fail_and_exit "数据库迁移（alembic upgrade head）"; fi; fi
