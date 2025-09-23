@@ -4,7 +4,7 @@ set -Eeuo pipefail
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
   echo "[entrypoint] running alembic upgrade head..."
   set +e
-  python -m alembic upgrade head
+  python -m alembic upgrade heads
   RC=$?
   set -e
   if [ $RC -ne 0 ]; then
