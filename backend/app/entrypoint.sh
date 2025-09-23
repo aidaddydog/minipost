@@ -1,11 +1,18 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# 可选：在容器启动时自动迁移（默认关闭；统一由外部一键脚本控制）
+# 可选：容器内自迁移（提高首启成功率；失败不致命）
 if [ "${RUN_MIGRATIONS:-0}" = "1" ]; then
   echo "[entrypoint] running alembic upgrade head..."
-  # 容器内已包含 /app/alembic.ini 与 /app/alembic
-  python -m alembic upgrade head || echo "[entrypoint] alembic failed (ignored)"
+  set +e
+  python -m alembic upgrade head
+  RC=$?
+  set -e
+  if [ $RC -ne 0 ]; then
+    echo "[entrypoint] alembic failed (ignored), RC=$RC"
+  else
+    echo "[entrypoint] alembic done"
+  fi
 fi
 
 # 启动 API
