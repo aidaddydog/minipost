@@ -21,6 +21,16 @@ class Waybill(CommonBase, Base):
     shipment_status: Mapped[ShipmentStatus] = mapped_column(Enum(ShipmentStatus), default=ShipmentStatus.pending)
     # 新增：运输方式（真实字段）
     transport_mode: Mapped[TransportMode | None] = mapped_column(Enum(TransportMode), nullable=True, comment="运输方式（见字段规范）")
+    
+    from sqlalchemy import Enum as SAEnum
+from app.common.enums import TransportMode  # 新增枚举
+class Waybill(CommonBase, Base):
+    __tablename__ = "waybill"
+    # ...
+    transport_mode: Mapped[TransportMode | None] = mapped_column(
+        SAEnum(TransportMode, name="transportmode"), nullable=True, comment="运输方式"
+    )
+
 
 class Label(CommonBase, Base):
     __tablename__ = "label"
