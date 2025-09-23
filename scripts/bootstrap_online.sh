@@ -1,174 +1,123 @@
 #!/usr/bin/env bash
-# 一键安装 Docker → 拉取/更新仓库 → 构建并启动（web+backend+postgres）
-# 支持多次执行覆盖，完成后提供健康检查与访问入口
+# =========================================================
+# minipost 一键部署（Docker 统一版）
+# 说明：
+#  - 修复 set -u 下 BASE_DIR 未赋值导致的报错
+#  - 加入：中文进度提示、二次覆盖/清理、UFW 放行、日志打印、失败时一行日志命令
+#  - 默认使用 deploy/docker-compose.yml 启动 web + backend + postgres
+# 适配：Ubuntu 24.04 LTS
+# =========================================================
+
 set -Eeuo pipefail
 
-# —— 安全默认值与环境加载（修复 BASE_DIR 未赋值问题）——
-# 说明：先“宽松”加载 .deploy.env，再补默认值，最后再切回严格模式，避免 set -u 下未赋值报错。
+# ---------- 公用输出样式 ----------
+green(){ echo -e "\033[32m$*\033[0m"; }
+yellow(){ echo -e "\033[33m$*\033[0m"; }
+red(){ echo -e "\033[31m$*\033[0m"; }
+info(){ echo "[`date +%H:%M:%S`] $*"; }
 
-set +u  # 暂时关闭未定义变量立刻报错，先加载环境
-# 自动加载同目录或仓库根目录的 .deploy.env（按你当前布局自适应）
+# ---------- 宽松加载环境，再补默认，最后回到严格 ----------
+set +u
 if [ -f ".deploy.env" ]; then
-  set -a
-  . ".deploy.env"
-  set +a
+  set -a; . ".deploy.env"; set +a
 elif [ -f "/opt/minipost/.deploy.env" ]; then
-  set -a
-  . "/opt/minipost/.deploy.env"
-  set +a
+  set -a; . "/opt/minipost/.deploy.env"; set +a
 fi
+# 关键变量默认值（如果 .deploy.env 已定义则不覆盖）
+: "${BASE_DIR:=/opt/minipost}"
+: "${REPO_URL:=https://github.com/aidaddydog/minipost.git}"
+: "${SERVICE_NAME:=minipost}"
+: "${APP_PORT:=8000}"
+: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"
+: "${COMPOSE_PROFILES:=web,backend,postgres}"
+: "${AUTO_OPEN_UFW:=yes}"         # yes/no：自动放行端口
+: "${AUTO_PRUNE_OLD:=no}"         # yes/no：二次覆盖时清理旧容器/镜像/卷
+: "${GIT_AUTH_HEADER:=}"          # 可选：私仓时用
+export BASE_DIR SERVICE_NAME APP_PORT COMPOSE_FILE COMPOSE_PROFILES
+set -u
 
-# 给关键变量设置安全默认值（若已在 .deploy.env 里定义，则不会覆盖）
-: "${BASE_DIR:=/opt/minipost}"          # 仓库工作目录
-: "${DATA_DIR:=${BASE_DIR}/data}"       # 数据目录
-: "${LOG_DIR:=${BASE_DIR}/logs}"        # 日志目录
-: "${REPO_URL:=https://github.com/aidaddydog/minipost.git}"  # 仓库地址
-: "${SERVICE_NAME:=minipost}"           # systemd 服务名
-: "${APP_PORT:=8000}"                   # 应用端口
-: "${COMPOSE_PROFILES:=web,backend,postgres}"  # docker compose 启动的 profiles
+# ---------- 前置检查 ----------
+require() { command -v "$1" >/dev/null 2>&1 || (red "✘ 缺少 $1" && exit 1); }
+require curl
+require git
+require docker
 
-export BASE_DIR DATA_DIR LOG_DIR REPO_URL SERVICE_NAME APP_PORT COMPOSE_PROFILES
-
-set -u  # 重新开启严格模式
-
-# ===== 美化输出 =====
-if command -v tput >/dev/null 2>&1; then
-  BOLD="$(tput bold)"; RESET="$(tput sgr0)"
-  C0="$(tput setaf 250)"; C1="$(tput setaf 39)"; C2="$(tput setaf 76)"
-  C3="$(tput setaf 214)"; C4="$(tput setaf 196)"; C5="$(tput setaf 45)"
+# Docker Hub 访问检查（非致命）
+if ! timeout 3 bash -lc 'docker pull --quiet hello-world >/dev/null 2>&1'; then
+  yellow "⚠ 访问 Docker Hub 失败，后续构建可能较慢或失败，请准备镜像源"
 else
-  BOLD=""; RESET=""; C0=""; C1=""; C2=""; C3=""; C4=""; C5=""
-fi
-info(){ echo -e "${C1}${BOLD}[$(date +%H:%M:%S)]$RESET ${C1}$*$RESET"; }
-ok(){   echo -e "${C2}${BOLD}✔$RESET ${C2}$*$RESET"; }
-warn(){ echo -e "${C3}${BOLD}⚠$RESET ${C3}$*$RESET"; }
-err(){  echo -e "${C4}${BOLD}✘$RESET ${C4}$*$RESET"; }
-
-SPIN_PID=""
-spin_start(){ local msg="$1"; local fr=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏); i=0
-  printf "${C5}%s${RESET} " "$msg"
-  ( while true; do printf "\r${C5}%s${RESET} " "${fr[i++ % ${#fr[@]}]} $msg"; sleep .1; done ) & SPIN_PID=$!
-}
-spin_stop(){ [ -n "$SPIN_PID" ] && kill "$SPIN_PID" >/dev/null 2>&1 || true; printf "\r"; }
-
-# ===== 变量与路径 =====
-REPO_URL="${REPO_URL:-https://github.com/aidaddydog/minipost}"
-REPO_DIR="${REPO_DIR:-/opt/minipost}"
-BRANCH="${BRANCH:-main}"
-COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
-WEB_HTTP_PORT="${WEB_HTTP_PORT:-80}"
-BACKEND_PORT="${BACKEND_PORT:-8000}"
-
-mkdir -p "$REPO_DIR"
-
-# ===== 0. 预检 =====
-if [ "$EUID" -ne 0 ]; then err "请以 root 运行（或使用 sudo）"; exit 1; fi
-
-# OS
-. /etc/os-release || true
-case "${ID:-unknown}" in
-  ubuntu|debian) ;;
-  *) warn "未识别的发行版：${ID:-?}，尝试以 Debian/Ubuntu 方式安装 Docker";;
-esac
-
-# 基础网络
-if ! ping -c1 -W2 registry-1.docker.io >/dev/null 2>&1; then
-  warn "访问 Docker Hub 失败，后续构建可能较慢或失败，请准备镜像源"
+  green "✔ Docker 可用"
 fi
 
-# ===== 1. 安装 Docker (若不存在) =====
-if ! command -v docker >/dev/null 2>&1; then
-  info "安装 Docker Engine"
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/${ID}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  echo     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${ID}     $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
-  apt-get update -y
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-  systemctl enable --now docker
-  ok "Docker 安装完成"
-else
-  ok "Docker 已存在"
-fi
-
-# ===== 2. 拉取/更新仓库 =====
-if [ ! -d "$REPO_DIR/.git" ]; then
-  info "克隆仓库：$REPO_URL"
-  git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$REPO_DIR"
-else
-  info "更新仓库：$REPO_DIR"
-  (cd "$REPO_DIR" && git fetch --all -p && git reset --hard "origin/$BRANCH")
-fi
-
-cd "$REPO_DIR"
-
-# ===== 3. 端口检测 =====
-for P in "$WEB_HTTP_PORT" 443; do
-  if ss -ltn | awk '{print $4}' | grep -q ":$P$"; then
-    warn "端口 $P 已被占用。Caddy/前端可能无法绑定该端口。"
+# ---------- 拉取/更新仓库 ----------
+info "更新仓库：$BASE_DIR"
+if [ ! -d "$BASE_DIR/.git" ]; then
+  install -d -m 0755 "$BASE_DIR"
+  if [ -n "$GIT_AUTH_HEADER" ]; then
+    # 走 GitHub API 原始内容授权（可选）
+    git clone "$REPO_URL" "$BASE_DIR"
+  else
+    git clone "$REPO_URL" "$BASE_DIR"
   fi
-done
+else
+  git -C "$BASE_DIR" fetch --all
+  git -C "$BASE_DIR" reset --hard origin/main
+fi
 
-# ===== 端口占用兜底（变量区之后、Step 7 之前放置）=====
-if command -v ss >/dev/null 2>&1; then
-  if ss -ltnp | grep -q ':80 '; then
-    if ! grep -q '^WEB_HTTP_PORT=' "$ENV_FILE"; then
-      warn "检测到 80 端口被占用，将在本次部署使用 8080（可在 .deploy.env 中自定义 WEB_HTTP_PORT）"
-      sed -i 's/^WEB_HTTP_PORT=.*/WEB_HTTP_PORT=8080/' "$ENV_FILE" || true
-      export WEB_HTTP_PORT=8080
-    fi
+# ---------- 可选二次覆盖清理 ----------
+if [ "${AUTO_PRUNE_OLD}" = "yes" ]; then
+  yellow "[二次覆盖] 清理旧容器/镜像/卷（安全可选）"
+  if [ -f "$COMPOSE_FILE" ]; then
+    docker compose -f "$COMPOSE_FILE" down -v || true
+  fi
+  docker image prune -f || true
+  docker volume prune -f || true
+fi
+
+# ---------- UFW 放行 ----------
+if [ "${AUTO_OPEN_UFW}" = "yes" ] && command -v ufw >/dev/null 2>&1; then
+  if ufw status | grep -q "Status: active"; then
+    ufw allow "${APP_PORT}/tcp" >/dev/null 2>&1 || true
+    info "✔ 已放行 UFW 端口 ${APP_PORT}"
   fi
 fi
 
-# ===== 构建并启动（替换原来的 Step 7）=====
-info "启动编排：web + backend + postgres"
-cd "$BASE_DIR"
+# ---------- 启动编排 ----------
+info "启动编排：${COMPOSE_PROFILES//,/ + }"
+if [ ! -f "$COMPOSE_FILE" ]; then
+  red "✘ 未找到编排文件：$COMPOSE_FILE"
+  echo "建议执行：tail -n 200 /var/log/${SERVICE_NAME}-bootstrap.log   # 查看安装日志"
+  exit 1
+fi
+
 set +e
-if [ "${MINIPOST_DEBUG:-0}" = "1" ]; then
-  docker compose -f "$COMPOSE_FILE" pull
-  docker compose -f "$COMPOSE_FILE" build --progress=plain || EXIT_CODE=$?
-  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans || EXIT_CODE=${EXIT_CODE:-$?}
-else
-  docker compose -f "$COMPOSE_FILE" pull >/dev/null 2>&1
-  docker compose -f "$COMPOSE_FILE" build --progress=plain || EXIT_CODE=$?
-  docker compose -f "$COMPOSE_FILE" up -d --remove-orphans >/dev/null 2>&1 || EXIT_CODE=${EXIT_CODE:-$?}
+DOCKER_DEFAULT_PLATFORM=${DOCKER_DEFAULT_PLATFORM:-} COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -f "$COMPOSE_FILE" build --progress=auto
+BUILD_RC=$?
+if [ $BUILD_RC -ne 0 ]; then
+  red "✘ 构建失败（EXIT_CODE=$BUILD_RC）"
+  echo "快速查看构建日志：docker compose -f $COMPOSE_FILE logs --tail=200"
+  exit $BUILD_RC
 fi
+
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -f "$COMPOSE_FILE" up -d
+UP_RC=$?
 set -e
-if [ -n "${EXIT_CODE:-}" ]; then
-  err "编排启动失败（EXIT_CODE=$EXIT_CODE）。以下为最近输出，便于快速定位："
+
+if [ $UP_RC -ne 0 ]; then
+  red "✘ 编排启动失败（EXIT_CODE=$UP_RC）。以下为最近输出，便于快速定位："
   docker compose -f "$COMPOSE_FILE" ps
-  docker compose -f "$COMPOSE_FILE" logs -n 200 db || true
-  docker compose -f "$COMPOSE_FILE" logs -n 200 backend || true
-  docker compose -f "$COMPOSE_FILE" logs -n 200 web || true
-  exit $EXIT_CODE
+  docker compose -f "$COMPOSE_FILE" logs --tail=200
+  echo
+  echo "# 一键查看 backend 日志（复制执行）："
+  echo "docker compose -f $COMPOSE_FILE logs backend --tail=200    # 查看后端容器日志"
+  exit $UP_RC
 fi
-ok "容器已启动"
 
-
-# ===== 5. 健康检查 =====
-BACKOFF=(2 3 5 8 13)
-HEALTH_OK=0
-for sec in "${BACKOFF[@]}"; do
-  sleep "$sec"
-  if curl -fsS "http://127.0.0.1/api/health" >/dev/null 2>&1; then HEALTH_OK=1; break; fi
-done
-if [ $HEALTH_OK -eq 1 ]; then ok "健康检查通过（/api/health）"; else warn "健康检查未通过，容器可能仍在初始化"; fi
-
-# ===== 6. 输出入口 & 常用命令 =====
-PUB_IP="$(curl -fsSL ipinfo.io/ip || true)"
-[ -z "$PUB_IP" ] && PUB_IP="服务器IP"
-BASE_URL="http://${MINIPOST_DOMAIN:-$PUB_IP}"
-
-echo ""
-info "🎯 部署完成！管理入口与关键地址："
-echo "  ${C2}前端（静态站点）${RESET}     →  ${BOLD}${BASE_URL}/${RESET}"
-echo "  ${C2}后端 Swagger 文档${RESET}   →  ${BOLD}${BASE_URL}/docs${RESET}"
-echo "  ${C2}健康检查${RESET}             →  ${BOLD}${BASE_URL}/api/health${RESET}"
-echo ""
-info "🧰 常用日志命令（可直接复制执行）："
-echo "  docker compose -f ${COMPOSE_FILE} logs web -n 200      # 前端(caddy)最近200行日志"
-echo "  docker compose -f ${COMPOSE_FILE} logs backend -n 200  # 后端最近200行日志"
-echo "  docker compose -f ${COMPOSE_FILE} logs db -n 200       # 数据库最近200行日志"
-echo ""
-ok  "祝使用顺利！"
+green "✔ 服务已启动"
+echo
+echo "# 常用检查命令："
+echo "docker compose -f $COMPOSE_FILE ps                         # 查看容器状态"
+echo "docker compose -f $COMPOSE_FILE logs backend --tail=200    # 查看后端日志"
+echo "docker compose -f $COMPOSE_FILE logs db --tail=200         # 查看数据库日志"
+echo
+echo "打开 http://<你的服务器IP>:${APP_PORT} 访问管理端"
