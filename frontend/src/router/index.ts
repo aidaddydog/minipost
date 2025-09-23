@@ -7,3 +7,7 @@ const routes = [
   { path: '/orders/label-upload/audit', component: () => import('@/modules/orders/views/LabelUploadAudit.vue') }
 ]
 export default createRouter({ history: createWebHistory(), routes })
+// extra placeholder routes to support top-nav
+routes.push({ path: '/products/list', component: () => import('@/views/ProductsList.vue') })
+routes.push({ path: '/logistics/rules', component: () => import('@/views/LogisticsRules.vue') })
+routes.push({ path: '/settings/system', component: () => import('@/views/SystemSettings.vue') })
