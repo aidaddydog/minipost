@@ -1,7 +1,7 @@
 # deploy/docker-compose.yml
 # 统一 Docker 编排（profiles: web, backend, postgres, editor）
-# - 修复：backend 健康检查改为“端口连通”而非 /docs 路由，避免卡死
-# - 保留：JINJA_AUTO_RELOAD=1、editor 独立端口、卷、依赖关系
+# - backend 健康检查改为“端口监听”而非 /docs，避免卡住
+# - 默认启用 RUN_MIGRATIONS=1（容器启动时自迁移），进一步降低等待风险
 
 services:
   db:
@@ -31,15 +31,15 @@ services:
       db:
         condition: service_healthy
     environment:
-      # 与后端代码一致：使用 asyncpg
       DATABASE_URL: postgresql+asyncpg://minipost:minipost@db:5432/minipost
       APP_ENV: production
       APP_PORT: 8000
       JINJA_AUTO_RELOAD: "1"
+      RUN_MIGRATIONS: "1"   # ← 启用容器内自迁移（entrypoint 会尝试 alembic upgrade）
     expose:
       - "8000"
-    # 健康检查：仅检测端口是否监听，避免依赖具体路由（如 /docs）
     healthcheck:
+      # 仅检测 8000 端口是否监听（不依赖具体路由），更快更稳
       test:
         [
           "CMD",
