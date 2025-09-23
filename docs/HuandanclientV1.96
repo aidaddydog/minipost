@@ -1,0 +1,842 @@
+# huandan_client.py — 1.96
+# 仅按需求变更：
+# 1) 版本号显示为 1.96
+# 2) 指示灯与总状态恢复到 1.95 的位置（卡片顶部）
+# 3) 同步过程的日志/进度/报错 -> 写入“打印状态”文本框（同步状态文本样式：同步中：PDF下载进度X% 解压数量 i/N，下载完成！）
+# 4) 回车时若处于同步中 -> 提示“正在同步中，请等待同步完成！”
+# 5) 启动与保存后的轮询改为“静默轮询”：仅当版本不一致才切到“同步中”并执行全量同步
+# 其余 UI/功能保持不变；保留 ZIP 加速下载（4MB chunk）与预填服务器/访问码
+
+import os, sys, json, time, threading, pathlib, datetime, subprocess, locale, tempfile, shutil
+import tkinter as tk
+from tkinter import ttk, messagebox
+from urllib import request, error
+import winreg
+import zipfile
+import hashlib
+
+# ====== 基本配置 ======
+SERVER_URL   = "http://10.0.8.165:8000"  # 内置默认服务器地址（设置里可覆盖，不变）
+APP_VENDOR   = "Miaolegewang"
+APP_NAME     = "HuandanClient"
+VERSION      = "1.96"  # << 显示为 1.96
+SUMA_SUB     = "Cache/SumatraPDF/SumatraPDF.exe"
+PDF_DIRSUB   = "Cache/pdfs"
+ZIP_CACHE_DIRSUB = "Cache/zips"
+ZIP_META_NAME = "zip_manifest.json"
+ZIP_CACHE_RETENTION_DAYS = 30
+
+# —— 网络超时/重试 & 忽略代理（确保内网直连） ——
+HTTP_TIMEOUT = 8
+HTTP_RETRIES = 3
+HTTP_BACKOFF = 1.8
+SYNC_INTERVAL_MIN = 1  # 轮询间隔（分钟）
+OPENER = request.build_opener(request.ProxyHandler({}))  # 不走系统代理
+
+# ====== 语言/文案 ======
+def detect_lang()->str:
+    try:
+        loc=(locale.getdefaultlocale()[0] or "").lower()
+    except Exception:
+        loc=""
+    return "zh" if (loc and loc.startswith("zh")) else "en"
+LANG=detect_lang()
+STR={
+    "zh":{
+        "title":f"换单客户端 · {VERSION}",
+        "status_offline":"已离线","status_syncing":"同步中","status_online":"已连接",
+        "settings":"设置","access_code":"访问码","server_url":"服务器地址","printer":"打印机",
+        "prefetch_days":"预取天数（0=全部）","open_cache":"打开缓存",
+        "save":"保存","cancel":"取消","default_prn":"(系统默认)","bind":"绑定换单号：",
+        "print_ok":"打印成功","print_fail":"打印失败",
+        "warn_no_order":"订单号不存在，等待上传！","warn_no_pdf":"面单 PDF 不存在，等待上传/等待 ZIP 同步！",
+        "no_sumatra":"未找到 Sumatra（等待同步下载或从已安装目录复制到缓存区）",
+        "sync_need_cfg":"未配置访问码","sync_check_ver":"校对版本…",
+        "sync_fetch_dates":"获取归档日期列表…","sync_zip_day":"同步 {date} 归档…",
+        "sync_done":"同步完成","sync_failed":"同步失败：{e}",
+        "sync_reason_ver":"同步中（版本变化 {old}->{new}）","sumatra_ready":"已准备 Sumatra",
+        "ready":"已就绪",
+        "sync_busy":"正在同步中，请等待同步完成！",
+    },
+    "en":{
+        "title":f"Huandan Client · {VERSION}",
+        "status_offline":"Offline","status_syncing":"Syncing","status_online":"Online",
+        "settings":"Settings","access_code":"Access Code","server_url":"Server URL","printer":"Printer",
+        "prefetch_days":"Prefetch Days (0 = All)","open_cache":"Open Cache",
+        "save":"Save","cancel":"Cancel","default_prn":"(System Default)","bind":"Order Bound: ",
+        "print_ok":"Printed","print_fail":"Print Failed",
+        "warn_no_order":"Order not found. Please upload!","warn_no_pdf":"Label PDF not found. Waiting for ZIP sync!",
+        "no_sumatra":"Sumatra not found (wait for sync or copy from system).",
+        "sync_need_cfg":"Access code not set","sync_check_ver":"Checking version…",
+        "sync_fetch_dates":"Fetching archive date list…","sync_zip_day":"Syncing archive {date}…",
+        "sync_done":"Sync done","sync_failed":"Sync failed: {e}",
+        "sync_reason_ver":"Syncing (version {old}->{new})","sumatra_ready":"Sumatra ready",
+        "ready":"Ready",
+        "sync_busy":"Sync in progress. Please wait!",
+    }
+}
+def T(k,**kw): return STR[LANG][k].format(**kw)
+
+# ====== 日志 ======
+def _log(msg:str):
+    try:
+        p = p_logs()/ "client.log"
+        p.parent.mkdir(parents=True, exist_ok=True)
+        with open(p, "a", encoding="utf-8") as f:
+            f.write(f"[{datetime.datetime.now().isoformat(timespec='seconds')}] {msg}\n")
+    except Exception:
+        pass
+
+# ====== 声音 ======
+def sound_ok():
+    try:
+        import winsound; winsound.Beep(1200,120)
+    except Exception:
+        pass
+def sound_oh_oh():
+    try:
+        import win32com.client
+        win32com.client.Dispatch("SAPI.SpVoice").Speak("哦欧"); return
+    except Exception:
+        pass
+    try:
+        import winsound; winsound.MessageBeep(winsound.MB_ICONHAND)
+    except Exception:
+        pass
+
+# ====== 路径/资源 ======
+def base_root()->pathlib.Path:
+    la=os.getenv("LOCALAPPDATA") or os.getenv("APPDATA") or os.path.expanduser("~")
+    return pathlib.Path(la)/APP_VENDOR/APP_NAME
+
+def p_zipcache(): return base_root()/ZIP_CACHE_DIRSUB
+def p_zipmeta():  return p_zipcache()/ZIP_META_NAME
+
+def ensure_dirs():
+    b=base_root()
+    for sub in ["Config","Cache","Cache/tmp","Logs","State","Runtime","Cache/SumatraPDF",PDF_DIRSUB]:
+        (b/sub).mkdir(parents=True,exist_ok=True)
+    return b
+
+def p_config():return base_root()/"Config"/"config.json"
+def p_state(): return base_root()/"State"/"state.json"
+def p_ver():   return base_root()/"Cache"/"version.txt"
+def p_map():   return base_root()/"Cache"/"mapping.json"
+def p_pdfdir():return base_root()/PDF_DIRSUB
+def p_suma():  return base_root()/SUMA_SUB
+def p_logs():  return base_root()/"Logs"
+
+def resource_path(name:str)->pathlib.Path:
+    if hasattr(sys, "_MEIPASS"):
+        return pathlib.Path(sys._MEIPASS) / name
+    return pathlib.Path(__file__).resolve().parent / name
+
+def apply_window_icon(win: tk.Tk):
+    for fname in ("hd.ico","app.ico","icon.ico","hd.png","app.png","icon.png"):
+        fp=resource_path(fname)
+        if fp.exists():
+            try:
+                if fp.suffix.lower()==".ico":
+                    win.iconbitmap(default=str(fp))
+                else:
+                    img=tk.PhotoImage(file=str(fp))
+                    win.iconphoto(True, img)
+                    setattr(win,"_icon_img", img)
+                return
+            except Exception:
+                pass
+
+# ====== 配置（访问码 / 服务器地址 / 打印机 / 预取天数） ======
+# 预填访问码/服务器地址（仍可在设置中修改；为空时才用此默认）
+DEFAULT_CFG={"access_code":"666666","server_url":"http://47.88.60.51:8000/","printer_name":"","prefetch_days":15}
+def load_cfg():
+    ensure_dirs()
+    if not p_config().exists():
+        p_config().write_text(json.dumps(DEFAULT_CFG,ensure_ascii=False,indent=2),encoding="utf-8")
+        return DEFAULT_CFG.copy()
+    try:
+        data=json.loads(p_config().read_text(encoding="utf-8")); return {**DEFAULT_CFG,**data}
+    except Exception:
+        return DEFAULT_CFG.copy()
+def save_cfg(cfg:dict):
+    ensure_dirs(); p_config().write_text(json.dumps(cfg,ensure_ascii=False,indent=2),encoding="utf-8")
+
+# ====== HTTP 基元 ======
+def _effective_server_url(cfg:dict)->str:
+    u=(cfg.get("server_url") or "").strip()
+    return u if u else SERVER_URL
+
+UA=f"{APP_NAME}/{VERSION}"
+
+def http_get_json(path: str, server: str, timeout=HTTP_TIMEOUT) -> dict:
+    url = f"{server.rstrip('/')}{path}"
+    req = request.Request(url, headers={"User-Agent": UA, "Accept": "application/json"})
+    last=None
+    for i in range(HTTP_RETRIES):
+        try:
+            with OPENER.open(req, timeout=timeout) as resp:
+                return json.loads(resp.read().decode("utf-8"))
+        except Exception as e:
+            last=e
+            if i < HTTP_RETRIES-1: time.sleep(HTTP_BACKOFF**i)
+            else: raise last
+
+def http_get_binary(path: str, to_file: pathlib.Path, server: str, timeout=HTTP_TIMEOUT):
+    url = f"{server.rstrip('/')}{path}"
+    headers={"User-Agent": UA}
+    req = request.Request(url, headers=headers)
+    last=None
+    for i in range(HTTP_RETRIES):
+        try:
+            with OPENER.open(req, timeout=timeout) as resp, open(to_file,"wb") as out:
+                shutil.copyfileobj(resp,out); return
+        except Exception as e:
+            last=e
+            if i < HTTP_RETRIES-1: time.sleep(HTTP_BACKOFF**i)
+            else: raise last
+
+def http_download_with_progress(path: str, to_file: pathlib.Path, server: str,
+                                timeout=HTTP_TIMEOUT, on_progress=None, if_none_match: str = None) -> tuple:
+    """
+    支持 ETag/If-None-Match 的下载器，返回 (status, headers)。
+    - status = 200 下载完成，=304 未变化
+    - on_progress(read, total) 进度回调（可选）
+    - 附带流式 SHA256（如服务端未提供）
+    """
+    url = f"{server.rstrip('/')}{path}"
+    headers={"User-Agent": UA}
+    if if_none_match:
+        headers["If-None-Match"] = if_none_match
+    req = request.Request(url, headers=headers)
+    last=None
+    for i in range(HTTP_RETRIES):
+        try:
+            with OPENER.open(req, timeout=timeout) as resp:
+                status = getattr(resp, 'status', 200)
+                hdrs = {k.lower(): v for k,v in resp.headers.items()}
+                if status == 304:
+                    return 304, hdrs
+                total = int(hdrs.get('content-length','0')) if hdrs.get('content-length') else 0
+                read = 0
+                chunk = 4*1024*1024  # 4MB 块
+                tmp = to_file.with_suffix(to_file.suffix + '.part')
+                hcalc = hashlib.sha256()
+                with open(tmp, 'wb') as out:
+                    while True:
+                        buf = resp.read(chunk)
+                        if not buf: break
+                        out.write(buf)
+                        hcalc.update(buf)
+                        read += len(buf)
+                        if on_progress and total>0:
+                            try: on_progress(read, total)
+                            except Exception: pass
+                tmp.replace(to_file)
+                if not hdrs.get("x-checksum-sha256"):
+                    hdrs["x-computed-sha256"] = hcalc.hexdigest()
+                return status, hdrs
+        except Exception as e:
+            last=e
+            if i < HTTP_RETRIES-1: time.sleep(HTTP_BACKOFF**i)
+            else: raise last
+
+# ====== ZIP 缓存元数据 ======
+def p_zipmeta_load()->dict:
+    try:
+        return json.loads(p_zipmeta().read_text(encoding="utf-8"))
+    except Exception:
+        return {"items":{}}
+
+def p_zipmeta_save(d: dict):
+    p_zipcache().mkdir(parents=True, exist_ok=True)
+    p_zipmeta().write_text(json.dumps(d, ensure_ascii=False, indent=2), encoding="utf-8")
+
+# ====== 打印机列表 / Sumatra ======
+def list_printers():
+    names=set()
+    try:
+        import win32print
+        for p in win32print.EnumPrinters(2):
+            if p and len(p)>=3 and p[2]: names.add(str(p[2]))
+        try:
+            d=win32print.GetDefaultPrinter()
+            if d: names.add(str(d))
+        except Exception:
+            pass
+    except Exception:
+        pass
+    if not names:
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows NT\CurrentVersion\Devices") as k:
+                i=0
+                while True:
+                    try:
+                        name=winreg.EnumValue(k,i)[0]
+                        if name: names.add(name)
+                        i+=1
+                    except OSError:
+                        break
+        except Exception:
+            pass
+        try:
+            with winreg.OpenKey(winreg.HKEY_LOCAL_MACHINE, r"SYSTEM\CurrentControlSet\Control\Print\Printers") as k:
+                i=0
+                while True:
+                    try:
+                        name=winreg.EnumKey(k,i)
+                        if name: names.add(name)
+                        i+=1
+                    except OSError:
+                        break
+        except Exception:
+            pass
+    return sorted(names, key=lambda s: s.casefold())
+
+def ensure_sumatra_available()->pathlib.Path|None:
+    ensure_dirs(); suma=p_suma()
+    if suma.exists():
+        return suma
+    for c in [r"C:\Program Files\SumatraPDF\SumatraPDF.exe",
+              r"C:\Program Files (x86)\SumatraPDF\SumatraPDF.exe"]:
+        if os.path.exists(c):
+            try:
+                shutil.copy2(c, suma)
+                if suma.exists() and suma.stat().st_size > 1024*1024:
+                    _log("sumatra: copied from Program Files")
+                    return suma
+            except Exception as e:
+                _log(f"sumatra copy fail: {e}")
+    try:
+        bund = resource_path("SumatraPDF.exe")
+        if bund.exists():
+            shutil.copy2(bund, suma)
+            if suma.exists() and suma.stat().st_size > 1024*1024:
+                _log("sumatra: extracted from bundled resource")
+                return suma
+    except Exception as e:
+        _log(f"sumatra bundle extract fail: {e}")
+    return None
+
+def _dec(b:bytes)->str:
+    try: return b.decode("mbcs",errors="ignore").strip()
+    except Exception: return ""
+
+def print_with_sumatra(pdf:pathlib.Path,cfg:dict)->tuple[bool,str]:
+    if not pdf.exists():
+        return False, f"[ERR_PDF_MISSING] {T('warn_no_pdf')}"
+    suma=ensure_sumatra_available()
+    if not suma or not suma.exists():
+        return False, f"[ERR_NO_SUMATRA] {T('no_sumatra')}"
+    cmd=[str(suma), "-silent", "-exit-on-print"]
+    if cfg.get("printer_name"):
+        cmd+=["-print-to", cfg["printer_name"]]
+    else:
+        cmd+=["-print-to-default"]
+    cmd.append(str(pdf))
+    try:
+        proc = subprocess.run(
+            cmd, check=False,
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+            creationflags=getattr(subprocess,"CREATE_NO_WINDOW",0)
+        )
+        if proc.returncode == 0:
+            return True, T("print_ok")
+        out=_dec(proc.stderr) or _dec(proc.stdout)
+        if out: out = out.replace("\r"," ").replace("\n"," ")[:200]
+        msg = f"{T('print_fail')} (code {proc.returncode})" + (f": {out}" if out else "")
+        if "printer" in (out or "").lower() or proc.returncode in (1,2):
+            msg += "｜请检查打印机是否在线/共享、名称是否匹配。"
+        return False, msg
+    except Exception as e:
+        return False, f"{T('print_fail')}: {e}"
+
+# ====== 同步器（仅 ZIP 方案）======
+class SyncStatus: OFFLINE="offline"; SYNCING="syncing"; ONLINE="online"
+
+class Syncer(threading.Thread):
+    def __init__(self,app,cfg:dict):
+        super().__init__(daemon=True); self.app=app; self.cfg=cdf=cfg; self.stop_flag=False
+    def stop(self): self.stop_flag=True
+    def _server(self)->str: return _effective_server_url(self.cfg)
+
+    # ---- 版本 / 映射 ----
+    def _fetch_version(self)->str:
+        code=self.cfg.get("access_code","").strip()
+        if not code: raise RuntimeError(T("sync_need_cfg"))
+        try:
+            j=http_get_json(f"/api/v1/version?code={code}", self._server(), timeout=HTTP_TIMEOUT); return str(j.get("version",""))
+        except error.HTTPError as e:
+            if e.code!=404: raise
+        j=http_get_json(f"/api/v1/mapping?code={code}", self._server(), timeout=30); return str(j.get("version",""))
+
+    def _download_mapping(self)->dict:
+        code=self.cfg.get("access_code","").strip()
+        if not code: raise RuntimeError(T("sync_need_cfg"))
+        return http_get_json(f"/api/v1/mapping?code={code}", self._server(), timeout=30)
+
+    # ---- Sumatra（服务器兜底）----
+    def _download_sumatra_arch(self, arch:str)->bool:
+        code=self.cfg.get("access_code","").strip()
+        if not code: return False
+        tmp=pathlib.Path(tempfile.mkstemp(suffix=".exe")[1])
+        try:
+            _log(f"sumatra try {arch} from {self._server()}")
+            http_get_binary(f"/api/v1/runtime/sumatra?arch={arch}&code={code}", tmp, self._server(), timeout=20)
+            ensure_dirs(); shutil.move(tmp,p_suma())
+            ok=p_suma().exists()
+            _log(f"sumatra {arch} result: {'ok' if ok else 'moved-but-missing'}")
+            return ok
+        except Exception as e:
+            try: tmp.unlink(missing_ok=True)
+            except Exception: pass
+            _log(f"sumatra {arch} fail: {e}")
+            return False
+
+    def ensure_sumatra_if_missing(self)->bool:
+        """若本地缺少 SumatraPDF.exe，则尝试 win64→win32 下载；返回是否下载成功"""
+        if p_suma().exists(): return False
+        if self._download_sumatra_arch("win64"):
+            self.app.sync_log(T("sumatra_ready"))
+            self.app.ui_status(SyncStatus.SYNCING, T("sumatra_ready"))
+            return True
+        if self._download_sumatra_arch("win32"):
+            self.app.sync_log(T("sumatra_ready"))
+            self.app.ui_status(SyncStatus.SYNCING, T("sumatra_ready"))
+            return True
+        return False
+
+    # ---- ZIP：归档列表 & 单日下载 ----
+    def _list_zip_dates(self):
+        code=self.cfg.get("access_code","").strip()
+        if not code: return []
+        try:
+            j=http_get_json(f"/api/v1/pdf-zips/dates?code={code}", self._server(), timeout=30)
+        except Exception as e:
+            _log(f"list zip dates fail: {e}")
+            self.app.sync_log(f"获取归档日期失败：{e}")
+            return []
+        out=[]
+        seq = (j.get('dates') if isinstance(j, dict) else j) or []
+        for it in seq:
+            if isinstance(it, str): out.append(it)
+            elif isinstance(it, dict) and it.get('date'): out.append(it.get('date'))
+        out=[d for d in out if isinstance(d,str) and len(d)==10 and d[4]=='-' and d[7]=='-']
+        return sorted(set(out))
+
+    def _download_zip_for_date(self, date_str:str):
+        code=self.cfg.get("access_code","").strip()
+        if not code or not date_str: return False
+        p_zipcache().mkdir(parents=True, exist_ok=True)
+        zname=f"pdfs-{date_str.replace('-','')}.zip"
+        zpath=p_zipcache()/zname
+        meta=p_zipmeta_load(); items=meta.get("items",{})
+        cur=items.get(date_str,{})
+
+        # 下载进度 -> 写入“打印状态”文本框（不再放到顶部标签）
+        def on_p(read,total):
+            percent=int(read*100/total) if total>0 else 0
+            try: self.app.sync_log(f"同步中：PDF下载进度{percent}%")
+            except Exception: pass
+
+        etag = cur.get("etag")
+        try:
+            status, hdrs = http_download_with_progress(
+                f"/api/v1/pdf-zips/daily?date={date_str}&code={code}",
+                zpath, self._server(), timeout=120, on_progress=on_p, if_none_match=etag
+            )
+        except error.HTTPError as e:
+            if getattr(e, 'code', None) == 304:
+                status=304; hdrs={k.lower(): v for k,v in (getattr(e,'headers',{}) or {}).items()}
+            else:
+                self.app.sync_log(f"下载归档失败：{e}")
+                raise
+
+        # 304：若未解压或校验值不同则补解压（进度写入文本框）
+        if status==304:
+            sha = (cur.get("sha256") or "")
+            extracted = cur.get("extracted")
+            if (not extracted) or (sha and extracted!=sha):
+                if zpath.exists():
+                    with zipfile.ZipFile(zpath, "r") as z:
+                        infos = z.infolist()
+                        files=[i for i in infos if not (getattr(i,"is_dir",None) and i.is_dir()) and not i.filename.endswith("/")]
+                        total=len(files); n=0
+                        for i in files:
+                            z.extract(i, p_pdfdir()); n+=1
+                            try: self.app.sync_log(f"同步中：PDF下载进度100% 解压数量 {n}/{total}")
+                            except Exception: pass
+                    try: self.app.sync_log(f"同步中：PDF下载进度100% 解压数量 {total}/{total}，下载完成！")
+                    except Exception: pass
+                    cur["extracted"] = sha or extracted
+                    meta["items"][date_str]=cur; p_zipmeta_save(meta)
+            return False
+
+        # 200：保存元数据（优先用服务端校验，其次本地计算）
+        hdr_etag = (hdrs.get("etag") or "").strip() or None
+        hdr_sha  = (hdrs.get("x-checksum-sha256") or hdrs.get("x-computed-sha256") or "").strip()
+        cur = {"etag": hdr_etag, "sha256": hdr_sha, "ts": int(time.time())}
+        if not cur["sha256"]:
+            h=hashlib.sha256()
+            with open(zpath,"rb") as f:
+                for chunk in iter(lambda: f.read(4*1024*1024), b""):
+                    h.update(chunk)
+            cur["sha256"]=h.hexdigest()
+
+        # 解压并实时显示统计
+        with zipfile.ZipFile(zpath, "r") as z:
+            infos = z.infolist()
+            files=[i for i in infos if not (getattr(i,"is_dir",None) and i.is_dir()) and not i.filename.endswith("/")]
+            total=len(files); n=0
+            for i in files:
+                z.extract(i, p_pdfdir()); n+=1
+                try: self.app.sync_log(f"同步中：PDF下载进度100% 解压数量 {n}/{total}")
+                except Exception: pass
+        try: self.app.sync_log(f"同步中：PDF下载进度100% 解压数量 {total}/{total}，下载完成！")
+        except Exception: pass
+
+        cur["extracted"] = cur["sha256"]
+        meta["items"][date_str]=cur; p_zipmeta_save(meta)
+        return True
+
+    def _prefetch_zip_by_days(self, days: int) -> bool:
+        """依据“最近 N 天”预取 ZIP（逐日下载并解压）。"""
+        try: days = int(days)
+        except Exception: days = 15
+        days = max(0, min(365, int(days)))
+
+        self.app.sync_log(T("sync_fetch_dates"))
+        dates = self._list_zip_dates()
+        if not dates:
+            return False
+
+        if days == 0:
+            targets = list(sorted(dates))
+        else:
+            today = datetime.datetime.utcnow().date()
+            cutoff = today - datetime.timedelta(days=days - 1)
+            cutoff_s = cutoff.strftime("%Y-%m-%d")
+            targets = [d for d in dates if d >= cutoff_s]
+            targets = list(sorted(targets))
+
+        for d in targets:
+            try:
+                self.app.sync_log(T("sync_zip_day", date=d))
+                self._download_zip_for_date(d)
+            except Exception as e:
+                _log(f"zip sync {d} fail: {e}")
+                self.app.sync_log(f"同步 {d} 失败：{e}")
+        return True
+
+    # ---- 主流程 ----
+    def full_sync(self):
+        """真正执行全量同步（此时已确认版本有变化）。"""
+        try:
+            # 进入“同步中”总状态 & 记录原因
+            local_v=p_ver().read_text(encoding="utf-8").strip() if p_ver().exists() else "-"
+            try:
+                server_v=self._fetch_version()
+            except Exception:
+                server_v="-"
+            self.app.ui_status(SyncStatus.SYNCING, T("sync_reason_ver",old=local_v or "-",new=server_v or "-"))
+            self.app.sync_log(T("sync_reason_ver",old=local_v or "-",new=server_v or "-"))
+
+            # 基础映射
+            data=self._download_mapping()
+            mappings=data.get("mappings",[]) or []
+            p_map().write_text(json.dumps(mappings,ensure_ascii=False),encoding="utf-8")
+            if server_v and server_v!="-": p_ver().write_text(str(server_v),encoding="utf-8")
+
+            # Sumatra 兜底
+            try:
+                if ensure_sumatra_available():
+                    self.app.sync_log(T("sumatra_ready"))
+                else:
+                    self.ensure_sumatra_if_missing()
+            except Exception:
+                pass
+
+            # 预取 ZIP
+            try: days=int(self.cfg.get("prefetch_days",15))
+            except Exception: days=15
+            self._prefetch_zip_by_days(days)
+
+            # 成功 -> 已连接｜已就绪
+            self.app.ui_status(SyncStatus.ONLINE, T("ready"))
+            self.app.sync_log(T("sync_done"))
+        except Exception as e:
+            self.app.sync_log(T("sync_failed", e=e))
+            self.app.ui_status(SyncStatus.OFFLINE, T("sync_failed", e=e))
+
+    def check_version_then_sync(self):
+        """静默轮询：仅当版本不一致（或本地无版本/映射）时才进入同步中并执行 full_sync。"""
+        # 静默校对，不改 UI 到“同步中”
+        try:
+            server_v=self._fetch_version()
+        except Exception as e:
+            # 失败按离线提示，但不进入“同步中”
+            self.app.ui_status(SyncStatus.OFFLINE, T("sync_failed", e=e))
+            return
+
+        local_v=p_ver().read_text(encoding="utf-8").strip() if p_ver().exists() else ""
+        need_sync = (not local_v) or (server_v and server_v!=local_v) or (not p_map().exists())
+
+        if need_sync:
+            self.full_sync()
+        else:
+            # 版本一致，保持当前状态；若已上线则不打扰
+            if self.app.current_status != SyncStatus.ONLINE:
+                self.app.ui_status(SyncStatus.ONLINE, T("ready"))
+            # 静默结束，不做映射/ZIP 额外动作
+
+    def _save_state(self,ok:bool,msg:str):
+        s={"last_sync_time":datetime.datetime.now().isoformat(timespec="seconds"),
+           "last_sync_ok":ok,"last_sync_msg":msg}
+        p_state().write_text(json.dumps(s,ensure_ascii=False,indent=2),encoding="utf-8")
+
+    def run(self):
+        first=True
+        while not self.stop_flag:
+            try:
+                if not self.cfg.get("access_code"):
+                    self.app.ui_status(SyncStatus.OFFLINE, T("sync_need_cfg"))
+                else:
+                    # 启动即“静默轮询”，仅差异时才进入同步中
+                    if first:
+                        self.check_version_then_sync()
+                        first=False
+                    else:
+                        self.check_version_then_sync()
+
+                for _ in range(SYNC_INTERVAL_MIN*60):
+                    if self.stop_flag: break
+                    time.sleep(1)
+            except Exception as e:
+                self.app.sync_log(T("sync_failed", e=e))
+                self.app.ui_status(SyncStatus.OFFLINE, T("sync_failed", e=e))
+                time.sleep(5)
+
+# ====== UI（指示灯+总状态在顶部；同步日志写入“打印状态”文本框） ======
+class App(tk.Tk):
+    def __init__(self):
+        super().__init__()
+        ensure_dirs(); self.cfg=load_cfg()
+        self.title(STR[LANG]["title"]); self.geometry("680x380"); self.minsize(560,300); self.configure(bg="#FFFFFF")
+        apply_window_icon(self)
+        self.protocol("WM_DELETE_WINDOW", self.on_close)
+
+        self.style = ttk.Style()
+        try: self.style.theme_use("clam")
+        except Exception: pass
+        self.style.configure("Black.TButton",background="#000000",foreground="#FFFFFF",bordercolor="#FFFFFF",focusthickness=0,focuscolor="#000000",padding=5)
+        self.style.map("Black.TButton",background=[("active","#111111"),("pressed","#000000"),("disabled","#555555")],foreground=[("disabled","#BBBBBB")])
+
+        # 卡片容器
+        card=tk.Frame(self,bg="#FFFFFF"); card.place(relx=0.5,rely=0.5,anchor="c",width=540,height=250)
+
+        # 顶部：指示灯 + 总状态（恢复到 1.95 位置）
+        top=tk.Frame(card,bg="#FFFFFF"); top.grid(row=0,column=0,sticky="ew",padx=18,pady=(0,8)); top.columnconfigure(1,weight=1)
+        self.dot=tk.Canvas(top,width=14,height=14,bg="#FFFFFF",highlightthickness=0); self.dot.grid(row=0,column=0,padx=(0,10))
+        self._dot("#FFD60A")  # 初始黄灯
+        self.lbl=tk.Label(top,text=T("status_syncing"),bg="#FFFFFF",fg="#111",font=("Segoe UI",11)); self.lbl.grid(row=0,column=1,sticky="w")
+
+        # 中部：扫描输入框
+        mid=tk.Frame(card,bg="#FFFFFF"); mid.grid(row=1,column=0,sticky="ew",padx=18)
+        self.entry=tk.Entry(mid,font=("Segoe UI",18,"bold"),relief="flat",bg="#EDEDED")
+        self.entry.pack(fill="x",ipady=10,pady=(0,10)); self.entry.bind("<Return>",self.on_scan); self.entry.focus_set()
+
+        # 底部：打印状态（文本框，亦用于承载同步日志/报错/进度）
+        low=tk.Frame(card,bg="#FFFFFF"); low.grid(row=2,column=0,sticky="nsew",padx=18,pady=(0,8))
+        card.rowconfigure(2,weight=1)
+        box=tk.Frame(low,bg="#FFFFFF"); box.pack(fill="both",expand=True)
+        self.out=tk.Text(box,wrap="word",relief="flat",bg="#F5F5F5",height=6)
+        self.out.pack(fill="both",expand=True)
+        self._set_output(T("bind")+"\n"+"打印状态：")
+
+        # 底栏
+        bottom=tk.Frame(self,bg="#FFFFFF"); bottom.pack(side="bottom",fill="x",pady=(4,8))
+        ttk.Button(bottom,text=T("settings"),command=self.open_settings,style="Black.TButton").pack(side="left",padx=(30,0))
+
+        # 状态标识
+        self.current_status = SyncStatus.SYNCING
+        self._syncing = True  # 是否处于“同步中”（用于回车拦截）
+
+        # 启动后台同步线程（静默轮询）
+        self.syncer=Syncer(self,self.cfg); self.syncer.start()
+
+    # ---- UI 辅助 ----
+    def _dot(self,color): self.dot.delete("all"); self.dot.create_oval(2,2,12,12,fill=color,outline=color)
+    def _set_output(self,txt):
+        self.out.config(state="normal"); self.out.delete("1.0","end"); self.out.insert("end",txt+"\n"); self.out.config(state="disabled")
+    def sync_log(self, line:str):
+        """把同步日志/进度/报错写入“打印状态”文本框（位于输入框下方）。"""
+        def apply():
+            self.out.config(state="normal")
+            self.out.insert("end", ("" if self.out.index("end-1c linestart")=="1.0" else "") + line + "\n")
+            self.out.see("end")
+            self.out.config(state="disabled")
+        self.after(0, apply)
+
+    def ui_status(self,status,text):
+        """仅用于“总状态”（顶部指示灯+标签）。在线 -> 固定显示“已连接｜已就绪”"""
+        def apply():
+            self.current_status = status
+            if status==SyncStatus.OFFLINE:
+                self._syncing = False
+                self._dot("#FF3B30"); self.lbl.config(text=T("status_offline")+"｜"+(text or ""))
+            elif status==SyncStatus.SYNCING:
+                self._syncing = True
+                self._dot("#FFD60A"); self.lbl.config(text=T("status_syncing")+"｜"+(text or ""))
+            else:
+                self._syncing = False
+                self._dot("#34C759"); self.lbl.config(text=T("status_online")+"｜"+T("ready"))
+        self.after(0,apply)
+
+    def warn(self,msg:str):
+        def _show(): sound_oh_oh(); messagebox.showwarning(STR[LANG]["title"],msg,parent=self)
+        self.after(0,_show)
+    def info_ding(self): sound_ok()
+
+    # ---- 扫码/回车 ----
+    def on_scan(self,_=None):
+        # 若处于“同步中”，直接提示并拦截
+        if getattr(self, "_syncing", False):
+            self.warn(T("sync_busy"))
+            self.sync_log(T("sync_busy"))
+            return
+
+        code=self.entry.get().strip()
+        if not code: return
+        mapping=[]
+        if p_map().exists():
+            try: mapping=json.loads(p_map().read_text(encoding="utf-8"))
+            except Exception: mapping=[]
+        tracking=None
+        for r in mapping:
+            if code in (str(r.get("order_id","")), str(r.get("customer_order",""))):
+                tracking=r.get("tracking_no") or r.get("hawb") or r.get("waybill"); break
+        bind=f"{T('bind')}{code}"
+        if tracking:
+            pdf=p_pdfdir()/f"{tracking}.pdf"
+            if pdf.exists():
+                ok,msg=print_with_sumatra(pdf,self.cfg)
+                if ok: self.info_ding()
+                else:  self.warn(msg)
+                self._set_output(f"{bind}\n{msg}（{tracking}）" if LANG=="zh" else f"{bind}\n{msg} ({tracking})")
+            else:
+                self.warn(T("warn_no_pdf"))
+                self._set_output(bind+"\n"+T("warn_no_pdf"))
+        else:
+            self.warn(T("warn_no_order")); self._set_output(bind+"\n"+T("warn_no_order"))
+        self.entry.delete(0,"end")
+
+    def open_settings(self): Settings(self)
+
+    def on_close(self):
+        try: self.syncer.stop()
+        except Exception: pass
+        self.destroy()
+
+# 设置抽屉：访问码 / 服务器地址 / 打印机 / 预取天数 + 打开缓存按钮
+class Settings(tk.Toplevel):
+    def __init__(self, master: App):
+        super().__init__(master)
+        self.m = master
+        self._root_click_seq = "<Button-1>"
+        self.overrideredirect(True); self.configure(bg="#FFFFFF")
+        w=360; h=master.winfo_height(); x0=master.winfo_x()+master.winfo_width(); y0=master.winfo_y()
+        self.geometry(f"{w}x{h}+{x0}+{y0}")
+
+        root=tk.Frame(self,bg="#FFFFFF"); root.pack(fill="both",expand=True)
+        body=tk.Frame(root,bg="#FFFFFF"); body.pack(fill="both",expand=True,padx=18,pady=(18,72))
+
+        tk.Label(body,text=T("settings"),bg="#FFFFFF",fg="#111",font=("Segoe UI",14,"bold")).pack(anchor="w",pady=(0,12))
+
+        tk.Label(body,text=T("access_code"),bg="#FFFFFF").pack(anchor="w")
+        self.e_code=ttk.Entry(body); self.e_code.insert(0, self.m.cfg.get("access_code","")); self.e_code.pack(fill="x",pady=(2,8))
+
+        tk.Label(body,text=T("server_url"),bg="#FFFFFF").pack(anchor="w")
+        self.e_srv=ttk.Entry(body); self.e_srv.insert(0,self.m.cfg.get("server_url","")); self.e_srv.pack(fill="x",pady=(2,8))
+
+        tk.Label(body,text=T("printer"),bg="#FFFFFF").pack(anchor="w")
+        names=list_printers()
+        self.cmb_prn=ttk.Combobox(body,state="readonly",values=names)
+        self.cmb_prn.set(self.m.cfg.get("printer_name") or STR[LANG]["default_prn"]); self.cmb_prn.pack(fill="x",pady=(2,8))
+
+        tk.Label(body,text=T("prefetch_days"),bg="#FFFFFF").pack(anchor="w")
+        self.spn_days=tk.Spinbox(body,from_=0,to=365,width=6)
+        self.spn_days.delete(0,"end"); self.spn_days.insert(0,str(self.m.cfg.get("prefetch_days",15))); self.spn_days.pack(anchor="w",pady=(2,8))
+
+        bar=tk.Frame(root,bg="#FFFFFF"); bar.place(relx=0,rely=1,anchor="sw",relwidth=1,height=56)
+        tk.Frame(bar,bg="#FFFFFF",height=1).pack(fill="x",side="top")
+        wrap=tk.Frame(bar,bg="#FFFFFF"); wrap.pack(fill="both",expand=True,padx=12,pady=8)
+        ttk.Button(wrap,text=T("open_cache"),command=self.open_cache,style="Black.TButton").pack(side="left")
+        ttk.Button(wrap,text=T("save"),command=self.save,style="Black.TButton").pack(side="right")
+        ttk.Button(wrap,text=T("cancel"),command=self.close,style="Black.TButton").pack(side="right",padx=(0,8))
+
+        self.bind("<Return>", lambda e: self.save())
+        self.bind("<Escape>", lambda e: self.close())
+
+        # 入场动画
+        mx=master.winfo_x()+master.winfo_width()-w; y=master.winfo_y()
+        for i in range(12,-1,-1):
+            self.geometry(f"{w}x{h}+{mx+int(i*4)}+{y}"); self.update(); time.sleep(0.01)
+
+        self.e_code.focus_set()
+
+        def _on_root_click(event):
+            try:
+                rx, ry = self.winfo_rootx(), self.winfo_rooty()
+                rw, rh = self.winfo_width(), self.winfo_height()
+                x, y = event.x_root, event.y_root
+                inside = (rx <= x <= rx+rw) and (ry <= y <= ry+rh)
+                if not inside:
+                    self.close()
+            except Exception:
+                self.close()
+        self.m.bind(self._root_click_seq, _on_root_click, add="+")
+
+    def open_cache(self):
+        try:
+            path = base_root()/ "Cache"
+            path.mkdir(parents=True, exist_ok=True)
+            os.startfile(str(path))
+        except Exception:
+            try:
+                subprocess.Popen(["explorer", str(pathlib.Path(base_root()/ "Cache"))])
+            except Exception:
+                pass
+
+    def save(self):
+        self.m.cfg["access_code"]=self.e_code.get().strip()
+        self.m.cfg["server_url"]=self.e_srv.get().strip()
+        pick=self.cmb_prn.get().strip()
+        self.m.cfg["printer_name"]="" if pick in ("",STR[LANG]["default_prn"]) else pick
+        try:
+            v=int(self.spn_days.get()); v=max(0,min(365,v))
+        except Exception:
+            v=15
+        self.m.cfg["prefetch_days"]=v
+        save_cfg(self.m.cfg)
+
+        # 【变更】保存后不再直接 full_sync，而是“静默轮询”，仅差异时进入同步中并执行 full_sync
+        def _do_check_then_sync():
+            try:
+                self.m.syncer.check_version_then_sync()
+            except Exception as e:
+                self.m.sync_log(T("sync_failed", e=e))
+                self.m.ui_status(SyncStatus.OFFLINE, T("sync_failed", e=e))
+        threading.Thread(target=_do_check_then_sync, daemon=True).start()
+
+        self.close()
+
+    def close(self):
+        try: self.m.unbind(self._root_click_seq)
+        except Exception: pass
+        try: self.destroy()
+        except Exception: pass
+
+# ====== 入口 ======
+if __name__=="__main__":
+    ensure_dirs()
+    app=App()
+    app.mainloop()
