@@ -1,0 +1,147 @@
+一、执行清单（每个动作的目的与做法）
+
+✅ = 建议默认开启，🟡 = 视环境选择，🔴 = 风险动作（必须明确确认）
+
+0. 审前检查（Preflight） ✅
+
+做什么：检查 root 权限、OS 版本、CPU/内存/磁盘余量、DNS/网络连通性（仓库、镜像仓库）、时间同步。
+
+作用：提前暴露“不满足最小运行条件”的问题，避免跑到一半失败。
+
+要点：
+
+systemd-timesyncd 正常；date 与公网时间差 < 2s（影响 TLS / LE 证书）。
+
+能否访问 registry-1.docker.io 或企业镜像源。
+
+磁盘剩余 >（镜像体积 + 数据目录预估 + 备份空间）。
+
+1. 日志与审计 ✅
+
+做什么：全程 tee 到安装日志；为每一步提供可复制的日志命令。
+
+作用：出现异常可快速定位（谁、何时、哪一步、哪条命令）。
+
+要点：安装日志写 *.log；敏感信息不落盘（见“敏感信息处理”）。
+
+2. 基础依赖与插件安装 ✅
+
+做什么：安装并启用插件。
+
+作用：保证后续拉镜像、校验 YAML、下载脚本等能力齐备。
+
+要点：Docker 开机自启；docker info 正常，可用。
+
+3. 仓库与代码完整性 ✅
+
+做什么：校验仓库结构；语法；关键文件存在；.deploy.env 参数可读。
+
+作用：避免因为拼写/缩进导致的编排失败；保证配置一致性。
+
+要点：.deploy.env 不入库、chmod 600；有默认值且交互回写。
+
+4. 二次覆盖策略与备份 🟡
+
+做什么：交互选择停止旧容器、清镜像、清数据（可选先备份）；创建 backup/YYYYmmdd_hhmmss/。
+
+作用：可“干净升级”；清数据前确保可恢复。
+
+要点：备份同时包含 data/ 目录 tar；记录 RPO/RTO 目标。
+
+5. 虚拟内存：ZRAM/Swap 策略 ✅
+
+做什么：≤8GB 内存优先 ZRAM；>8GB 用 Swap 文件（8–16GB）；设置 vm.swappiness/vfs_cache_pressure。
+
+作用：防 OOM、提高多任务稳定性。
+
+要点：ZRAM 用 zram-tools；Swap 文件加 fstab；不要同时强制两者（以脚本策略为准）。
+
+6. 关闭 THP（Transparent Huge Pages） ✅
+
+做什么：创建 disable-thp.service + 即时关闭。
+
+作用：对 Postgres/Redis 等延迟更稳定。
+
+要点：systemd one-shot，确保开机持久；如特定工作负载依赖 THP，可关闭此项。
+
+7. 网络加速：BBR + sysctl 调优 ✅
+
+做什么：fq+bbr、somaxconn、netdev_max_backlog、tcp_rmem/wmem、ip_local_port_range 等参数。
+
+作用：提升长/短连接混合场景吞吐、降低队列拥塞。
+
+要点：sysctl.d/90-erp-oms.conf 持久化；sysctl --system 生效；核验 tcp_congestion_control=bbr。
+
+8. 系统与 Docker ulimits（nofile 100万） ✅
+
+做什么：/etc/security/limits.d/99-erp-oms.conf + Docker daemon.json 的 default-ulimits。
+
+作用：杜绝 “too many open files”。
+
+要点：需要新会话生效（Docker 重启已覆盖守护进程）。
+
+9. Docker 守护进程优化 ✅
+
+做什么：log-driver=local + 日志滚动（64m x 5）；systemd cgroup；live-restore；可选镜像加速器。
+
+作用：避免日志爆盘、提升稳定性、升级 Docker 时容器不中断。
+
+要点：合并已有 /etc/docker/daemon.json；重启 Docker。
+
+10. 安全基线 ✅
+
+做什么：ufw 放行 22/80/443/应用端口（仅当 0.0.0.0 监听）；fail2ban（可选）；自动安全更新。
+
+作用：最小暴露面、基础暴力破解防护、及时打补丁。
+
+要点：云上还需配安全组（SG）放行；若 SSH 端口非 22 要同步放行；IPv6 同步策略（ufw enable 默认 v4+v6）。
+
+11. 反向代理与 TLS（https） 🟡
+
+做什么：可用 1Panel 的 Caddy/Nginx 一键反代 + LE 证书。
+
+作用：HTTPS、HTTP/2/3、证书自动续期。
+
+要点：域名 A 记录到公网 IP；80/443 可达；LE 限频；时钟准确。
+
+12. Compose 编排与健康检查 ✅
+
+做什么：docker compose pull/up -d；健康检查（db、redis、app）直到 healthy。
+
+作用：保证依赖顺序与健康态后再继续初始化。
+
+要点：healthcheck 轻量且幂等；失败要有最大重试与退出码。
+
+13. 数据库迁移 ✅
+
+做什么：执行应用迁移脚本（schema migrate）；失败则回滚到上一版本 compose + 备份。
+
+作用：保证新版本 schema 与代码一致。
+
+要点：迁移脚本必须幂等；在线迁移策略（锁表时间尽量短）。
+
+14. 管理员初始化与基础数据 ✅
+
+做什么：创建管理员（若不存在跳过）；可选导入演示数据。
+
+作用：拿到第一组可登录凭据完成验收。
+
+要点：把密码打印。
+
+15. 端口与反代验证 ✅
+
+做什么：curl http(s)://<域名或公网IP>/health 多次重试；必要时 ss -lntp 检查监听。
+
+作用：确认对内/对外访问路径无误。
+
+16. 部署报告与常用日志命令 ✅
+
+做什么：列出部署清单及状态、输出域名或者公网IP访问地址、管理员提示、数据/备份目录、日志路径、排障命令集合。
+
+作用：交付“人看得懂”的结果与自助排障能力。
+
+17. 回滚能力 ✅
+
+做什么：失败即还原上一版，遇破坏性变更则从最近备份恢复。
+
+作用：可控地从失败状态恢复业务。
