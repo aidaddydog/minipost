@@ -1,8 +1,10 @@
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, ForeignKey, Enum, DateTime
+
 from datetime import datetime
 from app.common.models_base import Base, CommonBase
 from app.common.enums import ShipmentStatus, TransportMode
+from enum import Enum as PyEnum
 
 class SalesOrder(CommonBase, Base):
     __tablename__ = "sales_order"
@@ -23,6 +25,10 @@ class Waybill(CommonBase, Base):
     transport_mode: Mapped[TransportMode | None] = mapped_column(Enum(TransportMode), nullable=True, comment="运输方式（见字段规范）")
     
     from sqlalchemy import Enum as SAEnum
+    from sqlalchemy import Enum as SAEnum
+
+from sqlalchemy import Column, Integer, String, DateTime, Boolean, ForeignKey, Text, Float
+from sqlalchemy.orm import relationship
 from app.common.enums import TransportMode  # 新增枚举
 class Waybill(CommonBase, Base):
     __tablename__ = "waybill"
