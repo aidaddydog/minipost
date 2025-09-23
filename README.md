@@ -1,4 +1,4 @@
-# minipost (ERP / OMS / TMS Skeleton)
+# minipost.app
 
 > 前后端分离 · FastAPI + PostgreSQL · Vue3 + Vite · 多租户 
 
