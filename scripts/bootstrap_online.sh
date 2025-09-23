@@ -16,8 +16,7 @@ on_exit(){ show_cursor; echo; }
 trap on_exit EXIT
 
 # ===== 每步进度条 =====
-step_bar(){
-  # step_bar <pct> <msg>
+step_bar(){ # step_bar <pct> <msg>
   local p="$1"; shift; [ "$p" -gt 100 ] && p=100
   local msg="$*"
   local fill=$(( p*BAR_LEN/100 )); [ $fill -gt $BAR_LEN ] && fill=$BAR_LEN
@@ -26,9 +25,9 @@ step_bar(){
   local blanks=$(printf '░%.0s' $(seq 1 $empty))
   printf "\r ${COL_BAR_FG}[${filled}${COL_BAR_BG}${blanks}${COL_BAR_FG}]${COL_RESET} %3d%%  %s" "$p" "$msg"
 }
-step_ok(){ printf "  ${COL_OK}✓${COL_RESET}\n"; }
+step_ok(){   printf "  ${COL_OK}✓${COL_RESET}\n"; }
 step_warn(){ printf "  ${COL_WARN}⚠${COL_RESET}\n"; }
-step_err(){ printf "  ${COL_ERR}✘${COL_RESET}\n"; }
+step_err(){  printf "  ${COL_ERR}✘${COL_RESET}\n"; }
 
 # ===== 变量 / 默认值 =====
 set +u
@@ -63,7 +62,7 @@ install -d -m 0755 "${BASE_DIR}/logs"
 LOG_FILE="${BASE_DIR}/logs/bootstrap_$(date +%Y%m%d_%H%M%S).log"
 ln -sfn "$LOG_FILE" "${BASE_DIR}/logs/bootstrap.latest.log"
 
-# ===== 工具函数 =====
+# ===== 工具函数（!!! 子Shell会用到，必须 export -f !!!） =====
 log(){ echo "[$(date +%F' '%T)] $*" >>"$LOG_FILE"; }
 
 ensure_env_var(){ # ensure_env_var KEY VAL
@@ -90,8 +89,10 @@ detect_public_ip(){
   echo "${ip:-未知}"
 }
 
-dump_failure(){
-  # 自动打印关键日志（便于直接看到错误内容）
+export -f ensure_env_var
+export -f merge_daemon_json
+
+dump_failure(){ # 自动打印关键日志（末尾 200 行）+ 一键命令
   echo -e "\n———— ${COL_ERR}失败日志（末尾 200 行）${COL_RESET} ————"
   echo "tail -n 200 ${BASE_DIR}/logs/bootstrap.latest.log"
   tail -n 200 "${BASE_DIR}/logs/bootstrap.latest.log" 2>/dev/null || true
@@ -108,7 +109,7 @@ dump_failure(){
   echo "  tail -n 500 ${BASE_DIR}/logs/bootstrap.latest.log"
 }
 
-fail_and_exit(){
+fail_and_exit(){ # fail_and_exit "哪一步"
   local why="$1"
   show_cursor; echo
   echo -e "${COL_ERR}✘ 失败：${why}${COL_RESET}"
@@ -118,13 +119,12 @@ fail_and_exit(){
 
 run_step(){ # run_step "标题" "命令"
   local title="$1"; shift; local cmd="$*"
-  hide_cursor
-  step_bar 7  "${title}…"
+  hide_cursor; local p=7; printf "\n "; step_bar $p "${title}…"
   { bash -lc "$cmd" >>"$LOG_FILE" 2>&1; echo $? >"$LOG_FILE.rc"; } &
-  local pid=$! i=0 p=7
+  local pid=$! i=0
   while kill -0 $pid 2>/dev/null; do
-    p=$(( (p+2) )); [ $p -gt 96 ] && p=96
-    printf "\r "; step_bar "$p" "${title}… ${SPIN[$((i%${#SPIN[@]}))]}"
+    p=$((p+2)); [ $p -gt 96 ] && p=96
+    printf "\r "; step_bar $p "${title}… ${SPIN[$((i%${#SPIN[@]}))]}"
     i=$((i+1)); sleep 0.12
   done
   local rc=$(cat "$LOG_FILE.rc" 2>/dev/null || echo 1); rm -f "$LOG_FILE.rc"
@@ -132,7 +132,7 @@ run_step(){ # run_step "标题" "命令"
   if [ $rc -eq 0 ]; then step_ok; else step_err; fail_and_exit "${title}"; fi
 }
 
-run_step_silent(){ # 不需要动画的短任务
+run_step_silent(){ # 短任务，无动画
   local title="$1"; shift; local cmd="$*"
   hide_cursor; printf "\n "; step_bar 0 "${title}…"
   if bash -lc "$cmd" >>"$LOG_FILE" 2>&1; then
@@ -145,14 +145,14 @@ run_step_silent(){ # 不需要动画的短任务
 echo -e "${COL_DIM}安装日志 -> ${LOG_FILE}${COL_RESET}"
 [ "$(id -u)" -eq 0 ] || { echo -e "${COL_ERR}✘ 需要 root 运行${COL_RESET}"; exit 1; }
 
-# 01 安装基础依赖
+# 01 基础依赖
 run_step "安装基础依赖" "
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
   apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools fail2ban unattended-upgrades
 "
 
-# 02 安装/校验 Docker + Compose
+# 02 Docker & Compose
 run_step "安装/校验 Docker + Compose" "
   install -d -m 0755 /etc/apt/keyrings
   if ! command -v docker >/dev/null 2>&1; then
@@ -185,7 +185,7 @@ run_step "优化 Docker 守护进程" "
   systemctl restart docker
 "
 
-# 04 设置 ulimits
+# 04 ulimits
 run_step_silent "设置 ulimits" "
   cat >/etc/security/limits.d/99-erp-oms.conf <<'EOF'
 * soft nofile 1048576
@@ -197,7 +197,7 @@ EOF
   systemctl restart docker
 "
 
-# 05 配置 ZRAM / Swap
+# 05 ZRAM / Swap
 run_step_silent "配置 ZRAM/Swap" "
   MEM_GB=\$(awk '/MemTotal/{printf \"%.0f\", \$2/1024/1024}' /proc/meminfo)
   if [ \"$AUTO_ZRAM_SWAP\" = \"yes\" ]; then
@@ -241,7 +241,7 @@ EOF
   systemctl enable --now disable-thp.service
 "
 
-# 07 应用 BBR + sysctl
+# 07 BBR + sysctl
 run_step_silent "应用 BBR + sysctl" "
   [ \"$AUTO_TUNE_NET\" = \"yes\" ] || exit 0
   cat >/etc/sysctl.d/90-erp-oms.conf <<'EOF'
@@ -259,7 +259,7 @@ EOF
   sysctl --system >/dev/null 2>&1 || true
 "
 
-# 08 启用安全组件
+# 08 安全基线
 run_step_silent "启用安全组件" "
   [ \"$AUTO_FAIL2BAN\" = \"yes\" ] && systemctl enable --now fail2ban || true
   [ \"$AUTO_UNATTENDED_UPDATES\" = \"yes\" ] && systemctl enable --now unattended-upgrades || true
@@ -272,7 +272,7 @@ run_step_silent "启用安全组件" "
   fi
 "
 
-# 09 写入部署环境参数（你之前失败的点，这里也会自动打印日志）
+# 09 写入部署环境参数（已修复：函数导出到子Shell）
 run_step_silent "写入部署环境参数" "
   ensure_env_var APP_PORT \"${APP_PORT}\"
   ensure_env_var EDITOR_PORT \"${EDITOR_PORT}\"
@@ -330,7 +330,7 @@ run_step "启动服务" "
   COMPOSE_PROFILES='${COMPOSE_PROFILES}' docker compose -f '${COMPOSE_FILE}' up -d
 "
 
-# —— 迁移（额外步骤：限时重试 & 失败自动打印日志）——
+# —— 迁移（限时重试 + 失败自动打印日志）——
 hide_cursor
 printf "\n "; step_bar 0 "执行数据库迁移（限时重试）…"
 migrate_try(){ timeout 90s docker compose -f "${COMPOSE_FILE}" exec -T backend sh -lc 'python -m alembic upgrade head' >>"$LOG_FILE" 2>&1; }
