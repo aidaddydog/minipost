@@ -1,1 +1,0 @@
-Place SumatraPDF installers here if needed.
