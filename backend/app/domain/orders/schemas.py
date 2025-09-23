@@ -1,15 +1,18 @@
 from pydantic import BaseModel
 from datetime import datetime
+from typing import Optional
 
 class LabelRow(BaseModel):
     id: str
-    order_no: str | None
+    order_no: Optional[str] = None
     tracking_no: str
-    transfer_waybill_no: str | None
-    label_file: str | None
+    transfer_waybill_no: Optional[str] = None
+    label_file: Optional[str] = None
     status_text: str
-    created_at: datetime | None
-    printed_at: datetime | None
+    created_at: Optional[datetime] = None
+    printed_at: Optional[datetime] = None
+    # 新增：运输方式
+    transport_mode: Optional[str] = None
 
 class UploadLogRow(BaseModel):
     id: str
@@ -19,27 +22,4 @@ class UploadLogRow(BaseModel):
     total: int
     success: int
     fail: int
-    operator: str | None
-    success_nos: list[str] | None = None
-    fail_nos: list[str] | None = None
-
-class SwitchTaskRow(BaseModel):
-    id: str
-    rule_id: str | None
-    rule_name: str | None
-    order_no: str | None
-    tracking_no: str | None
-    transfer_waybill_no: str | None
-    status: str
-    executed_at: datetime | None
-    error_message: str | None = None
-
-class SwitchAuditRow(BaseModel):
-    id: str
-    task_id: str
-    event: str
-    occurred_at: datetime
-    order_no: str | None
-    tracking_no: str | None
-    transfer_waybill_no: str | None
-    detail: dict | None = None
+    operator: str

@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # 一键安装 Docker → 拉取/更新仓库 → 构建并启动（web+backend+postgres）
-# 特性：彩色进度/Spinner、端口放行（80/443）、二次覆盖、健康检查、结尾打印公网入口
+# 支持多次执行覆盖，完成后提供健康检查与访问入口
 set -Eeuo pipefail
 
-# ====== UI 颜色 ======
+# ===== 美化输出 =====
 if command -v tput >/dev/null 2>&1; then
   BOLD="$(tput bold)"; RESET="$(tput sgr0)"
   C0="$(tput setaf 250)"; C1="$(tput setaf 39)"; C2="$(tput setaf 76)"
@@ -18,105 +18,77 @@ err(){  echo -e "${C4}${BOLD}✘$RESET ${C4}$*$RESET"; }
 
 SPIN_PID=""
 spin_start(){ local msg="$1"; local fr=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏); i=0
-  printf "${C5}%s${RESET} " "$msg"; (
-    while :; do printf "\r${C5}%s ${fr[i++%${#fr[@]}]}${RESET} " "$msg"; sleep .12; done
-  ) & SPIN_PID=$!
+  printf "${C5}%s${RESET} " "$msg"
+  ( while true; do printf "\r${C5}%s${RESET} " "${fr[i++ % ${#fr[@]}]} $msg"; sleep .1; done ) & SPIN_PID=$!
 }
-spin_stop(){ [ -n "${SPIN_PID}" ] && kill -9 "$SPIN_PID" >/dev/null 2>&1 || true; echo -ne "\r"; }
+spin_stop(){ [ -n "$SPIN_PID" ] && kill "$SPIN_PID" >/dev/null 2>&1 || true; printf "\r"; }
 
-# ====== 变量 ======
-REPO="https://github.com/aidaddydog/minipost.git"
-BRANCH="${MINIPOST_BRANCH:-main}"
-BASE_DIR="${MINIPOST_BASE_DIR:-/opt/minipost}"
-COMPOSE_FILE="${BASE_DIR}/deploy/docker-compose.yml"
-ENV_FILE="${BASE_DIR}/.deploy.env"
-LOG_DIR="${MINIPOST_LOG_DIR:-/var/log/minipost}"
-mkdir -p "$LOG_DIR"
-LOG_FILE="${LOG_DIR}/bootstrap_$(date +%Y%m%d_%H%M%S).log"
-exec > >(tee -a "$LOG_FILE") 2>&1
+# ===== 变量与路径 =====
+REPO_URL="${REPO_URL:-https://github.com/aidaddydog/minipost}"
+REPO_DIR="${REPO_DIR:-/opt/minipost}"
+BRANCH="${BRANCH:-main}"
+COMPOSE_FILE="${COMPOSE_FILE:-deploy/docker-compose.yml}"
+WEB_HTTP_PORT="${WEB_HTTP_PORT:-80}"
+BACKEND_PORT="${BACKEND_PORT:-8000}"
 
-API_PORT_DEFAULT=8000
-WEB_HTTP_PORT_DEFAULT=80
+mkdir -p "$REPO_DIR"
 
-cat <<'BANNER'
- __  __ _       _                 _   
-|  \/  (_)_ __ (_)_ __   ___  ___| |_ 
-| |\/| | | '_ \| | '_ \ / _ \/ __| __|
-| |  | | | | | | | | | |  __/\__ \ |_ 
-|_|  |_|_|_| |_|_|_| |_|\___||___/\__|
-BANNER
-info "Minipost 一键上线 - 彩色进度 / 端口放行 / 健康检查 / 公网入口"
+# ===== 0. 预检 =====
+if [ "$EUID" -ne 0 ]; then err "请以 root 运行（或使用 sudo）"; exit 1; fi
 
-# Step 1 权限
-if [ "$(id -u)" -ne 0 ]; then warn "建议使用 root 运行，当前将尝试 sudo"; SUDO="sudo -H"; else SUDO=""; fi
-ok "权限检查通过"
+# OS
+. /etc/os-release || true
+case "${ID:-unknown}" in
+  ubuntu|debian) ;;
+  *) warn "未识别的发行版：${ID:-?}，尝试以 Debian/Ubuntu 方式安装 Docker";;
+esac
 
-# Step 2 Docker
+# 基础网络
+if ! ping -c1 -W2 registry-1.docker.io >/dev/null 2>&1; then
+  warn "访问 Docker Hub 失败，后续构建可能较慢或失败，请准备镜像源"
+fi
+
+# ===== 1. 安装 Docker (若不存在) =====
 if ! command -v docker >/dev/null 2>&1; then
-  info "未检测到 Docker，开始安装"
-  spin_start "安装 Docker / Compose"
-  curl -fsSL https://get.docker.com | $SUDO sh >/dev/null 2>&1 || { spin_stop; err "Docker 安装失败"; exit 1; }
-  $SUDO usermod -aG docker "${SUDO_USER:-$USER}" || true
-  spin_stop; ok "Docker / Compose 安装完成"
+  info "安装 Docker Engine"
+  apt-get update -y
+  apt-get install -y ca-certificates curl gnupg lsb-release
+  install -m 0755 -d /etc/apt/keyrings
+  curl -fsSL https://download.docker.com/linux/${ID}/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
+  echo     "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/${ID}     $(lsb_release -cs) stable" | tee /etc/apt/sources.list.d/docker.list >/dev/null
+  apt-get update -y
+  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
+  systemctl enable --now docker
+  ok "Docker 安装完成"
 else
-  ok "已检测到 Docker：$(docker --version)"
+  ok "Docker 已存在"
 fi
 
-# Step 3 拉仓库
-if [ -d "$BASE_DIR/.git" ]; then
-  info "检测到已有仓库，执行更新：$BASE_DIR"
-  (cd "$BASE_DIR" && git fetch --all && git reset --hard "origin/${BRANCH}" && git clean -fd) || { err "更新失败"; exit 1; }
-  ok "仓库已更新到 $BRANCH"
+# ===== 2. 拉取/更新仓库 =====
+if [ ! -d "$REPO_DIR/.git" ]; then
+  info "克隆仓库：$REPO_URL"
+  git clone --depth=1 -b "$BRANCH" "$REPO_URL" "$REPO_DIR"
 else
-  info "克隆仓库到 $BASE_DIR"
-  $SUDO mkdir -p "$BASE_DIR"
-  git clone -b "$BRANCH" --depth=1 "$REPO" "$BASE_DIR" || { err "克隆失败"; exit 1; }
-  ok "克隆完成"
+  info "更新仓库：$REPO_DIR"
+  (cd "$REPO_DIR" && git fetch --all -p && git reset --hard "origin/$BRANCH")
 fi
 
-# Step 4 生成/读取 .deploy.env
-if [ ! -f "$ENV_FILE" ]; then
-  cat > "$ENV_FILE" <<EOF
-API_PORT=${API_PORT_DEFAULT}
-WEB_HTTP_PORT=${WEB_HTTP_PORT_DEFAULT}
-DB_USER=minipost
-DB_PASSWORD=minipost
-DB_NAME=minipost
-AUTO_CLEAN=no
-MINIPOST_DOMAIN=
-EOF
-  ok "已生成默认环境文件：$ENV_FILE"
-fi
-# shellcheck disable=SC1090
-source "$ENV_FILE"
+cd "$REPO_DIR"
 
-# Step 5 放行端口
-if command -v ufw >/dev/null 2>&1; then
-  info "UFW 放行 ${WEB_HTTP_PORT}/tcp（以及 443，如用 HTTPS）"
-  $SUDO ufw allow "${WEB_HTTP_PORT}"/tcp || true
-  $SUDO ufw allow 443/tcp || true
-  ok "UFW 已尝试放行端口"
-else
-  warn "未检测到 UFW，略过端口放行（如有防火墙请自行放行）"
-fi
+# ===== 3. 端口检测 =====
+for P in "$WEB_HTTP_PORT" 443; do
+  if ss -ltn | awk '{print $4}' | grep -q ":$P$"; then
+    warn "端口 $P 已被占用。Caddy/前端可能无法绑定该端口。"
+  fi
+done
 
-# Step 6 清理旧容器（可选）
-if [ "${AUTO_CLEAN:-no}" = "yes" ]; then
-  info "AUTO_CLEAN=yes → 清理旧容器/网络"
-  (cd "$BASE_DIR" && docker compose -f "$COMPOSE_FILE" down --remove-orphans || true)
-  ok "旧容器已清理"
-else
-  warn "AUTO_CLEAN=no → 跳过清理（可在 .deploy.env 设置 yes）"
-fi
-
-# Step 7 构建并启动
-info "启动编排：web + backend + postgres"
-cd "$BASE_DIR"
-spin_start "docker compose up -d --build（首次构建略慢）"
-docker compose -f "$COMPOSE_FILE" up -d --build >/dev/null 2>&1 || { spin_stop; err "编排启动失败"; exit 1; }
+# ===== 4. 构建 & 启动 =====
+info "构建并启动 Docker Compose"
+spin_start "docker compose up -d --build"
+docker compose -f "$COMPOSE_FILE" up -d --build >/dev/null 2>&1 || {{ spin_stop; err "编排启动失败"; exit 1; }}
 spin_stop; ok "容器已启动"
 
-# Step 8 健康检查
+# ===== 5. 健康检查 =====
 BACKOFF=(2 3 5 8 13)
 HEALTH_OK=0
 for sec in "${BACKOFF[@]}"; do
@@ -125,9 +97,8 @@ for sec in "${BACKOFF[@]}"; do
 done
 if [ $HEALTH_OK -eq 1 ]; then ok "健康检查通过（/api/health）"; else warn "健康检查未通过，容器可能仍在初始化"; fi
 
-# Step 9 打印出入口 & 日志命令
-PUB_IP="$(curl -fsSL https://api.ipify.org || true)"
-[ -z "$PUB_IP" ] && PUB_IP="$(hostname -I 2>/dev/null | awk '{print $1}')" || true
+# ===== 6. 输出入口 & 常用命令 =====
+PUB_IP="$(curl -fsSL ipinfo.io/ip || true)"
 [ -z "$PUB_IP" ] && PUB_IP="服务器IP"
 BASE_URL="http://${MINIPOST_DOMAIN:-$PUB_IP}"
 
@@ -142,4 +113,4 @@ echo "  docker compose -f ${COMPOSE_FILE} logs web -n 200      # 前端(caddy)�
 echo "  docker compose -f ${COMPOSE_FILE} logs backend -n 200  # 后端最近200行日志"
 echo "  docker compose -f ${COMPOSE_FILE} logs db -n 200       # 数据库最近200行日志"
 echo ""
-ok  "完整日志文件：${LOG_FILE}"
+ok  "祝使用顺利！"
