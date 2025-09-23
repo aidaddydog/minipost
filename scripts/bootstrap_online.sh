@@ -1,25 +1,36 @@
 #!/usr/bin/env bash
 # =========================================================
-# minipost 一键部署（Docker 统一版 · 强化版 · 镜像加速 & Git接管 Adopt）
-# - 自动安装/优化 Docker；默认镜像加速器探测写入
-# - ZRAM/Swap、THP、BBR、ulimits、UFW、fail2ban/自动更新（可选）
-# - Git 目录容错：存在非Git目录 → 采用“Adopt 模式”（在 .repo 里克隆仓库并切换到该编排），不破坏现有目录
-# - 仍支持“备份并重建”标准模式
+# minipost 一键部署（Docker 统一版 · 零交互最佳默认 · 公网IP展示）
+# - 零交互：采用最佳默认（可用 .deploy.env 覆盖）
+# - 自动安装/优化 Docker；默认镜像加速器“可达性探测后写入”
+# - 自动模式选择：目录存在且非 Git → Adopt 接管（.repo）
+# - ZRAM/Swap、THP、BBR、ulimits、UFW、fail2ban、自动安全更新
+# - 自动构建/启动/健康检查/迁移；结尾展示公网 IP 访问地址
 # 适配：Ubuntu 24.04 LTS（root）
 # =========================================================
 
 set -Eeuo pipefail
+
+# ---------- 彩色输出 ----------
 green(){ echo -e "\033[32m$*\033[0m"; }
 yellow(){ echo -e "\033[33m$*\033[0m"; }
 red(){ echo -e "\033[31m$*\033[0m"; }
 info(){ echo "[`date +%H:%M:%S`] $*"; }
 
-confirm(){ local tip="$1"; local def="${2:-N}"; local ans; read -r -p "$tip [$def] " ans || true; ans="${ans:-$def}"; case "$ans" in y|Y|yes|YES) return 0;; *) return 1;; esac; }
-retry(){ local times="$1"; shift; local n=0 rc=0; while :; do set +e; eval "$@"; rc=$?; set -e; [ $rc -eq 0 ] && return 0; n=$((n+1)); [ $n -ge $times ] && return $rc; sleep $(( n*2 )); yellow "重试第 $n 次：$*"; done; }
+# ---------- 小工具 ----------
+retry(){ local t="$1"; shift; local n=0 rc=0; while :; do set +e; eval "$@"; rc=$?; set -e; [ $rc -eq 0 ] && return 0; n=$((n+1)); [ $n -ge $t ] && return $rc; sleep $(( n*2 )); yellow "重试第 $n 次：$*"; done; }
 ensure_env_var(){ local k="$1" v="$2" f="${BASE_DIR}/.deploy.env"; [ -f "$f" ] || { echo "# minipost 部署环境（自动生成）" > "$f"; chmod 600 "$f"; }; grep -q "^${k}=" "$f" 2>/dev/null || echo "${k}=${v}" >> "$f"; }
 merge_daemon_json(){ local key="$1" value="$2" f="/etc/docker/daemon.json"; install -d -m 0755 /etc/docker; [ -f "$f" ] || echo '{}' > "$f"; tmp="$(mktemp)"; jq "$key = $value" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"; }
+detect_public_ip(){
+  local ip=""
+  ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(ip route get 1 2>/dev/null | awk '/src/{print $7; exit}')"
+  echo "${ip:-未知}"
+}
 
-# ---------- 加载/默认变量 ----------
+# ---------- 加载/默认变量（.deploy.env 可覆盖） ----------
 set +u
 [ -f ".deploy.env" ] && { set -a; . ".deploy.env"; set +a; }
 [ -f "/opt/minipost/.deploy.env" ] && { set -a; . "/opt/minipost/.deploy.env"; set +a; }
@@ -30,63 +41,40 @@ set +u
 : "${EDITOR_PORT:=6006}"
 : "${EDITOR_USER:=daddy}"
 : "${EDITOR_PASS:=20240314AaA#}"
-: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"   # 可能被 Adopt 模式改写为 ${BASE_DIR}/.repo/deploy/docker-compose.yml
+: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"   # Adopt 时会改写为 .repo 路径
 : "${COMPOSE_PROFILES:=web,backend,postgres,editor}"
 : "${AUTO_OPEN_UFW:=yes}"
-: "${AUTO_PRUNE_OLD:=no}"
-: "${AUTO_FAIL2BAN:=no}"
-: "${AUTO_UNATTENDED_UPDATES:=no}"
-: "${AUTO_TUNE_NET:=yes}"
-: "${AUTO_ULIMITS:=yes}"
-: "${AUTO_ZRAM_SWAP:=yes}"
+# —— 零交互最佳默认 ——（可在 .deploy.env 覆盖）
+: "${AUTO_PRUNE_OLD:=no}"            # 默认不清理卷/镜像，避免误删数据
+: "${DO_BACKUP_DATA:=yes}"           # 启动前备份 BASE_DIR/data（如存在）
+: "${AUTO_FAIL2BAN:=yes}"            # 开启防暴力破解
+: "${AUTO_UNATTENDED_UPDATES:=yes}"  # 开启自动安全更新（不强制重启）
+: "${AUTO_TUNE_NET:=yes}"            # BBR + sysctl
+: "${AUTO_ULIMITS:=yes}"             # nofile=1,048,576
+: "${AUTO_ZRAM_SWAP:=yes}"           # ≤8G 用 ZRAM；>8G 建 swapfile
 : "${SWAP_SIZE_GB:=8}"
-: "${DO_BACKUP_DATA:=yes}"
-: "${DOCKER_MIRROR_URL:=}"   # 交互可追加自定义镜像
+: "${DOCKER_MIRROR_URL:=}"           # 额外自定义镜像（逗号/空格分隔）
 : "${DEFAULT_MIRRORS:="https://docker.m.daocloud.io https://hub-mirror.c.163.com https://mirror.ccs.tencentyun.com"}"
 : "${GIT_AUTH_HEADER:=}"
 export BASE_DIR SERVICE_NAME APP_PORT EDITOR_PORT COMPOSE_PROFILES
 set -u
 
 # ---------- 日志 ----------
-LOG_DIR="${BASE_DIR}/logs"; install -d -m 0755 "$LOG_DIR"
-LOG_FILE="${LOG_DIR}/bootstrap_$(date +%Y%m%d_%H%M%S).log"
-ln -sfn "$LOG_FILE" "${LOG_DIR}/bootstrap.latest.log"
+install -d -m 0755 "${BASE_DIR}/logs"
+LOG_FILE="${BASE_DIR}/logs/bootstrap_$(date +%Y%m%d_%H%M%S).log"
+ln -sfn "$LOG_FILE" "${BASE_DIR}/logs/bootstrap.latest.log"
 exec > >(tee -a "$LOG_FILE") 2>&1
 [ "$(id -u)" -eq 0 ] || { red "✘ 需要 root 运行"; exit 1; }
 info "安装日志：$LOG_FILE"
 
-# ---------- 交互选项 ----------
-confirm "是否『二次覆盖清理』（停旧容器/清镜像/清卷）？" N && AUTO_PRUNE_OLD=yes || AUTO_PRUNE_OLD=no
-confirm "是否在启动前『备份 data/ 目录』（如存在）？" Y && DO_BACKUP_DATA=yes || DO_BACKUP_DATA=no
-confirm "是否启用『ZRAM/Swap 自动策略』？" Y && AUTO_ZRAM_SWAP=yes || AUTO_ZRAM_SWAP=no
-confirm "是否应用『BBR + sysctl 调优』？" Y && AUTO_TUNE_NET=yes || AUTO_TUNE_NET=no
-confirm "是否设置『ulimits(100万)』及 Docker default-ulimits？" Y && AUTO_ULIMITS=yes || AUTO_ULIMITS=no
-confirm "是否启用『fail2ban』？" N && AUTO_FAIL2BAN=yes || AUTO_FAIL2BAN=no
-confirm "是否启用『自动安全更新（unattended-upgrades）』？" N && AUTO_UNATTENDED_UPDATES=yes || AUTO_UNATTENDED_UPDATES=no
-read -r -p "可选：额外镜像加速器（逗号或空格分隔，留空跳过）: " DOCKER_MIRROR_URL || true
-
-# ---------- 回写 .deploy.env ----------
-install -d -m 0755 "$BASE_DIR"
-ensure_env_var APP_PORT "${APP_PORT}"
-ensure_env_var EDITOR_PORT "${EDITOR_PORT}"
-ensure_env_var EDITOR_USER "${EDITOR_USER}"
-ensure_env_var EDITOR_PASS "${EDITOR_PASS}"
-ensure_env_var COMPOSE_PROFILES "${COMPOSE_PROFILES}"
-ensure_env_var AUTO_OPEN_UFW "${AUTO_OPEN_UFW}"
-ensure_env_var AUTO_PRUNE_OLD "${AUTO_PRUNE_OLD}"
-
 # ---------- 基础依赖 / Docker ----------
 export DEBIAN_FRONTEND=noninteractive
 retry 3 "apt-get update -y"
-retry 3 "apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools"
-[ "$AUTO_FAIL2BAN" = "yes" ] && retry 3 "apt-get install -y fail2ban"
-[ "$AUTO_UNATTENDED_UPDATES" = "yes" ] && retry 3 "apt-get install -y unattended-upgrades"
-
+retry 3 "apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools fail2ban unattended-upgrades"
+install -d -m 0755 /etc/apt/keyrings
 if ! command -v docker >/dev/null 2>&1; then
-  yellow "⏳ 安装 Docker（官方源失败则回退 Ubuntu 源）"
-  install -d -m 0755 /etc/apt/keyrings
   set +e
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor >/etc/apt/keyrings/docker.gpg
+  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor >/etc/apt/keyrings/docker.gpg 2>/dev/null
   RC=$?; set -e
   if [ $RC -eq 0 ]; then
     chmod a+r /etc/apt/keyrings/docker.gpg
@@ -94,11 +82,7 @@ if ! command -v docker >/dev/null 2>&1; then
     echo "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu ${UB_CODENAME} stable" >/etc/apt/sources.list.d/docker.list
     retry 3 "apt-get update -y"
     set +e; apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin; RC=$?; set -e
-    if [ $RC -ne 0 ]; then
-      yellow "⚠ 官方源失败，回退 Ubuntu 源 docker.io"
-      retry 3 "apt-get update -y"
-      retry 3 "apt-get install -y docker.io docker-compose-plugin"
-    fi
+    [ $RC -ne 0 ] && { yellow "⚠ 官方源失败，回退 Ubuntu 源 docker.io"; retry 3 "apt-get update -y"; retry 3 "apt-get install -y docker.io docker-compose-plugin"; }
   else
     yellow "⚠ GPG 失败，使用 Ubuntu 源安装"
     retry 3 "apt-get update -y"
@@ -110,30 +94,31 @@ docker compose version >/dev/null 2>&1 || { red "✘ docker compose 插件不可
 green "✔ Docker/Compose 就绪"
 
 # ---------- Docker 守护进程优化 + 镜像加速 ----------
-probe_mirror(){ local url="$1" code; code="$(curl -m 3 -fsSIX GET "$url/v2/" -o /dev/null -w '%{http_code}' || true)"; [ -n "$code" ] && [ "$code" -lt 500 ]; }
+probe_mirror(){ # 仅接受 200/401/403，且不输出错误
+  local url="$1" code
+  code="$(curl -m 3 -fsIX GET "$url/v2/" -o /dev/null -w '%{http_code}' 2>/dev/null || echo "")"
+  case "$code" in 200|401|403) return 0;; *) return 1;; esac
+}
 build_mirrors_json(){
-  local all=() u; if [ -n "$DOCKER_MIRROR_URL" ]; then IFS=', ' read -r -a user_mirrors <<< "$DOCKER_MIRROR_URL"; for u in "${user_mirrors[@]}"; do [ -n "$u" ] && all+=("$u"); done; fi
+  local all=() uniq=() seen="" u
+  if [ -n "$DOCKER_MIRROR_URL" ]; then IFS=', ' read -r -a user_mirrors <<< "$DOCKER_MIRROR_URL"; for u in "${user_mirrors[@]}"; do [ -n "$u" ] && all+=("$u"); done; fi
   for u in $DEFAULT_MIRRORS; do all+=("$u"); done
-  local uniq=() seen="" m; for m in "${all[@]}"; do [[ " $seen " == *" $m "* ]] && continue; seen="$seen $m"; probe_mirror "$m" && uniq+=("$m"); done
+  for u in "${all[@]}"; do [[ " $seen " == *" $u "* ]] && continue; seen="$seen $u"; probe_mirror "$u" && uniq+=("$u"); done
   printf '%s\n' "${uniq[@]}" | jq -R . | jq -s .
 }
-if command -v jq >/dev/null 2>&1; then
-  merge_daemon_json '.["log-driver"]' '"local"'
-  merge_daemon_json '.["log-opts"]' '{"max-size":"64m","max-file":"5"}'
-  merge_daemon_json '.["exec-opts"]' '["native.cgroupdriver=systemd"]'
-  merge_daemon_json '.["live-restore"]' 'true'
-  MIRRORS_JSON="$(build_mirrors_json)"
-  if [ "$(echo "$MIRRORS_JSON" | jq 'length')" -gt 0 ]; then
-    merge_daemon_json '.["registry-mirrors"]' "$MIRRORS_JSON"
-    info "✔ 已写入镜像加速器：$(echo "$MIRRORS_JSON" | jq -r '.[]' | xargs)"
-  else
-    yellow "⚠ 未发现可用镜像加速器（可随后手工配置）"
-  fi
-  systemctl restart docker
-  green "✔ Docker daemon.json 已优化并重启（日志滚动/systemd cgroup/live-restore/镜像加速）"
+merge_daemon_json '.["log-driver"]' '"local"'
+merge_daemon_json '.["log-opts"]' '{"max-size":"64m","max-file":"5"}'
+merge_daemon_json '.["exec-opts"]' '["native.cgroupdriver=systemd"]'
+merge_daemon_json '.["live-restore"]' 'true'
+MIRRORS_JSON="$(build_mirrors_json)"
+if [ "$(echo "$MIRRORS_JSON" | jq 'length')" -gt 0 ]; then
+  merge_daemon_json '.["registry-mirrors"]' "$MIRRORS_JSON"
+  info "✔ 已写入镜像加速器：$(echo "$MIRRORS_JSON" | jq -r '.[]' | xargs)"
 else
-  yellow "⚠ 未安装 jq，跳过 daemon.json 合并"
+  yellow "⚠ 未发现可用镜像加速器（可稍后手工配置 /etc/docker/daemon.json）"
 fi
+systemctl restart docker
+green "✔ Docker daemon.json 已优化并重启（日志滚动/systemd/live-restore/镜像加速）"
 
 # ---------- ulimits ----------
 if [ "${AUTO_ULIMITS}" = "yes" ]; then
@@ -143,10 +128,8 @@ if [ "${AUTO_ULIMITS}" = "yes" ]; then
 root soft nofile 1048576
 root hard nofile 1048576
 EOF
-  if command -v jq >/dev/null 2>&1; then
-    merge_daemon_json '.["default-ulimits"]' '{"nofile":{"Name":"nofile","Hard":1048576,"Soft":1048576}}'
-    systemctl restart docker
-  fi
+  merge_daemon_json '.["default-ulimits"]' '{"nofile":{"Name":"nofile","Hard":1048576,"Soft":1048576}}'
+  systemctl restart docker
   green "✔ 已设置 ulimits（nofile 100万）"
 fi
 
@@ -213,7 +196,9 @@ EOF
 fi
 
 # ---------- 安全基线 ----------
-if command -v ufw >/dev/null 2>&1; then
+systemctl enable --now fail2ban >/dev/null 2>&1 || true
+systemctl enable --now unattended-upgrades >/dev/null 2>&1 || true
+if command -v ufw >/dev/null 2>&1 && [ "${AUTO_OPEN_UFW}" = "yes" ]; then
   if ufw status | grep -q "Status: active"; then
     ufw allow 22/tcp >/dev/null 2>&1 || true
     ufw allow "${APP_PORT}/tcp" >/dev/null 2>&1 || true
@@ -221,52 +206,24 @@ if command -v ufw >/dev/null 2>&1; then
     info "✔ UFW 已放行：22, ${APP_PORT}, ${EDITOR_PORT}"
   fi
 fi
-[ "$AUTO_FAIL2BAN" = "yes" ] && systemctl enable --now fail2ban || true
-[ "$AUTO_UNATTENDED_UPDATES" = "yes" ] && systemctl enable --now unattended-upgrades || true
 
-# ---------- 仓库同步（支持 Adopt 模式） ----------
-info "同步仓库（支持 Adopt 非破坏接管）"
-REPO_DIR="$BASE_DIR"         # 默认直接用 BASE_DIR
+# ---------- 仓库同步（自动选择模式：标准 / Adopt 接管） ----------
+info "同步仓库（自动模式）"
+REPO_DIR="$BASE_DIR"     # 标准模式
 USE_ADOPT="no"
 
 if [ -d "$BASE_DIR" ] && [ ! -d "$BASE_DIR/.git" ]; then
-  yellow "检测到目录已存在但不是 Git 仓库：$BASE_DIR"
-  echo "请选择处理方式："
-  echo "  A) 备份该目录并用 ${REPO_URL} 重建（推荐标准模式）"
-  echo "  B) 采用“Adopt 非破坏接管”：在 ${BASE_DIR}/.repo 克隆仓库并使用该编排（不动现有目录）"
-  echo "  C) 取消"
-  read -r -p "你的选择 [B]: " CHOICE; CHOICE="${CHOICE:-B}"
-  case "$CHOICE" in
-    A|a)
-      BAK="${BASE_DIR}.pre_$(date +%Y%m%d_%H%M%S)"
-      mv "$BASE_DIR" "$BAK"
-      green "✔ 已备份到：$BAK"
-      install -d -m 0755 "$BASE_DIR"
-      retry 3 "git clone '$REPO_URL' '$BASE_DIR'"
-      REPO_DIR="$BASE_DIR"
-      ;;
-    B|b)
-      USE_ADOPT="yes"
-      REPO_DIR="${BASE_DIR}/.repo"
-      install -d -m 0755 "$REPO_DIR"
-      if [ ! -d "$REPO_DIR/.git" ]; then
-        retry 3 "git clone '$REPO_URL' '$REPO_DIR'"
-      else
-        retry 3 "git -C '$REPO_DIR' fetch --all"
-        retry 3 "git -C '$REPO_DIR' reset --hard origin/main"
-      fi
-      ;;
-    *)
-      red "✘ 取消操作"; exit 1;;
-  esac
-elif [ -d "$BASE_DIR/.git" ]; then
-  ORIGIN="$(git -C "$BASE_DIR" remote get-url origin || true)"
-  if [ -n "$ORIGIN" ] && [ "$ORIGIN" != "$REPO_URL" ]; then
-    yellow "当前 origin 与 REPO_URL 不一致："
-    echo "  origin:   $ORIGIN"
-    echo "  REPO_URL: $REPO_URL"
-    confirm "是否将 origin 改为 REPO_URL 并强制同步？" Y && git -C "$BASE_DIR" remote set-url origin "$REPO_URL" || true
+  # 非 Git 目录 → Adopt 接管：在 .repo 克隆，保持你原目录不动
+  USE_ADOPT="yes"
+  REPO_DIR="${BASE_DIR}/.repo"
+  install -d -m 0755 "$REPO_DIR"
+  if [ ! -d "$REPO_DIR/.git" ]; then
+    retry 3 "git clone '$REPO_URL' '$REPO_DIR'"
+  else
+    retry 3 "git -C '$REPO_DIR' fetch --all"
+    retry 3 "git -C '$REPO_DIR' reset --hard origin/main"
   fi
+elif [ -d "$BASE_DIR/.git" ]; then
   retry 3 "git -C '$BASE_DIR' fetch --all"
   retry 3 "git -C '$BASE_DIR' reset --hard origin/main"
 else
@@ -274,17 +231,16 @@ else
   retry 3 "git clone '$REPO_URL' '$BASE_DIR'"
 fi
 
-# 根据模式确定 compose 文件位置
+# 选择 compose 文件位置
 if [ "$USE_ADOPT" = "yes" ]; then
-  COMPOSE_FILE="${REPO_DIR}/deploy/docker-compose.yml"     # 切换到 .repo 的编排
-  ensure_env_var COMPOSE_FILE "${COMPOSE_FILE}"
+  COMPOSE_FILE="${REPO_DIR}/deploy/docker-compose.yml"
 else
   COMPOSE_FILE="${BASE_DIR}/deploy/docker-compose.yml"
-  ensure_env_var COMPOSE_FILE "${COMPOSE_FILE}"
 fi
 export COMPOSE_FILE
+ensure_env_var COMPOSE_FILE "${COMPOSE_FILE}"
 
-# ---------- 数据备份 & 二次覆盖 ----------
+# ---------- 备份数据 & 二次覆盖 ----------
 BACKUP_ROOT="${BASE_DIR}/backup/$(date +%Y%m%d_%H%M%S)"
 [ "${DO_BACKUP_DATA}" = "yes" ] && [ -d "${BASE_DIR}/data" ] && { install -d -m 0755 "$BACKUP_ROOT"; tar -czf "${BACKUP_ROOT}/data.tgz" -C "${BASE_DIR}" data; info "✔ 数据已备份：${BACKUP_ROOT}/data.tgz"; }
 if [ "${AUTO_PRUNE_OLD}" = "yes" ] && [ -f "$COMPOSE_FILE" ]; then
@@ -298,7 +254,7 @@ fi
 [ -f "$COMPOSE_FILE" ] || { red "✘ 未找到编排文件：$COMPOSE_FILE"; echo "tail -n 200 $LOG_FILE"; exit 1; }
 info "构建镜像：${COMPOSE_PROFILES//,/ + }"
 set +e
-COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -f "$COMPOSE_FILE" build --progress=auto
+COMPOSE_PROFILES="$COMPOSE_PROFILES" docker compose -f "$COMPOSE_FILE" build
 BUILD_RC=$?; set -e
 [ $BUILD_RC -ne 0 ] && { red "✘ 构建失败（$BUILD_RC）"; echo "docker compose -f $COMPOSE_FILE logs --tail=200"; exit $BUILD_RC; }
 
@@ -322,17 +278,17 @@ if [ $MIG_RC -ne 0 ]; then
 fi
 green "✔ 迁移完成"
 
-# ---------- 端口验证 ----------
-info "验证端口：APP ${APP_PORT} / EDITOR ${EDITOR_PORT}"
-retry 3 "curl -fsSI --max-time 3 http://127.0.0.1:${APP_PORT}/ || true"
-retry 3 "curl -fsSI --max-time 3 http://127.0.0.1:${EDITOR_PORT}/login || true"
+# ---------- 端口验证（本机） ----------
+retry 3 "curl -fsSI --max-time 3 http://127.0.0.1:${APP_PORT}/ >/dev/null || true"
+retry 3 "curl -fsSI --max-time 3 http://127.0.0.1:${EDITOR_PORT}/login >/dev/null || true"
 
-# ---------- 完成 & 常用命令 ----------
+# ---------- 完成 & 公网IP展示 ----------
+PUBIP="$(detect_public_ip)"
 green "✔ 部署完成"
 echo
-echo "== 访问地址 =="
-echo "管理端：     http://<服务器IP>:${APP_PORT}"
-echo "模板编辑器： http://<服务器IP>:${EDITOR_PORT}   （账号：${EDITOR_USER}）"
+echo "== 访问地址（公网IP 自动探测） =="
+echo "管理端：     http://${PUBIP}:${APP_PORT}"
+echo "模板编辑器： http://${PUBIP}:${EDITOR_PORT}    （账号：${EDITOR_USER}）"
 echo
 echo "== 常用一键日志命令 =="
 echo "docker compose -f $COMPOSE_FILE ps"
