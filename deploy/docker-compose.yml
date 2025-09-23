@@ -1,0 +1,45 @@
+version: "3.9"
+name: minipost
+services:
+  db:
+    image: postgres:15
+    container_name: minipost_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-minipost}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-minipost}
+      POSTGRES_DB: ${DB_NAME:-minipost}
+    volumes:
+      - dbdata:/var/lib/postgresql/data
+    networks: [minipost_net]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost}"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    build: ../backend
+    container_name: minipost_backend
+    depends_on: [db]
+    environment:
+      DATABASE_URL: postgresql+asyncpg://${DB_USER:-minipost}:${DB_PASSWORD:-minipost}@db:5432/${DB_NAME:-minipost}
+      MINIPOST_APP_NAME: "Minipost ERP"
+      MINIPOST_API_PREFIX: "/api/v1"
+      MINIPOST_CORS_ORIGINS: "*"
+      MINIPOST_DEFAULT_TENANT_ID: "demo-tenant"
+    networks: [minipost_net]
+
+  web:
+    build:
+      context: ../frontend
+    container_name: minipost_web
+    depends_on: [backend]
+    ports:
+      - "${WEB_HTTP_PORT:-80}:80"
+    networks: [minipost_net]
+
+networks:
+  minipost_net:
+
+volumes:
+  dbdata:

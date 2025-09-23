@@ -1,0 +1,29 @@
+entities:
+  label:
+    fields:
+      tracking_no:
+        title_zh: "运单号"
+        title_en: "Carrier Tracking No."
+        description_zh: "服务商提供的运单号（对外查询）"
+        type: string
+        unique: true
+      transfer_waybill_no:
+        title_zh: "转单号"
+        title_en: "Carrier Transfer Tracking No."
+        description_zh: "换单/转单后产生的服务商转单号"
+        aliases: ["transfer_tracking_no"]
+        type: string
+  waybill:
+    fields:
+      waybill_no:
+        title_zh: "系统运单号"
+        title_en: "Internal Waybill No."
+        description_zh: "自有物流体系内部运单号"
+        type: string
+        unique: true
+search:
+  label_upload:
+    keyword_fields:
+      - "sales_order.order_no"
+      - "label.tracking_no"
+      - "label.transfer_waybill_no"
