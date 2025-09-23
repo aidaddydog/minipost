@@ -3,6 +3,34 @@
 # 支持多次执行覆盖，完成后提供健康检查与访问入口
 set -Eeuo pipefail
 
+# —— 安全默认值与环境加载（修复 BASE_DIR 未赋值问题）——
+# 说明：先“宽松”加载 .deploy.env，再补默认值，最后再切回严格模式，避免 set -u 下未赋值报错。
+
+set +u  # 暂时关闭未定义变量立刻报错，先加载环境
+# 自动加载同目录或仓库根目录的 .deploy.env（按你当前布局自适应）
+if [ -f ".deploy.env" ]; then
+  set -a
+  . ".deploy.env"
+  set +a
+elif [ -f "/opt/minipost/.deploy.env" ]; then
+  set -a
+  . "/opt/minipost/.deploy.env"
+  set +a
+fi
+
+# 给关键变量设置安全默认值（若已在 .deploy.env 里定义，则不会覆盖）
+: "${BASE_DIR:=/opt/minipost}"          # 仓库工作目录
+: "${DATA_DIR:=${BASE_DIR}/data}"       # 数据目录
+: "${LOG_DIR:=${BASE_DIR}/logs}"        # 日志目录
+: "${REPO_URL:=https://github.com/aidaddydog/minipost.git}"  # 仓库地址
+: "${SERVICE_NAME:=minipost}"           # systemd 服务名
+: "${APP_PORT:=8000}"                   # 应用端口
+: "${COMPOSE_PROFILES:=web,backend,postgres}"  # docker compose 启动的 profiles
+
+export BASE_DIR DATA_DIR LOG_DIR REPO_URL SERVICE_NAME APP_PORT COMPOSE_PROFILES
+
+set -u  # 重新开启严格模式
+
 # ===== 美化输出 =====
 if command -v tput >/dev/null 2>&1; then
   BOLD="$(tput bold)"; RESET="$(tput sgr0)"
