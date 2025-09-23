@@ -4,7 +4,6 @@ from fastapi.responses import JSONResponse
 import logging
 
 log = logging.getLogger("uvicorn.error")
-
 app = FastAPI(title="minipost API")
 
 @app.get("/healthz", include_in_schema=False)
