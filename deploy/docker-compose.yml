@@ -1,6 +1,9 @@
 # deploy/docker-compose.yml
-# 说明：统一 Docker 编排，profiles: web, backend, postgres
-# 注意：若你已有反向代理（Caddy/Nginx/Traefik），可以把 web 的 8000:8000 暴露去掉，改走内网。
+# 说明：统一 Docker 编排（profiles: web, backend, postgres）
+# 变更要点：
+# 1) web 的构建上下文从 ../static 改为 ../frontend，并把端口改为 8000:80（Caddy 监听 80）
+# 2) backend 的构建上下文改为 ../backend，Dockerfile 为其目录内的 Dockerfile
+# 3) 增加 backend 健康检查；各服务加 restart: unless-stopped
 
 services:
   db:
@@ -17,12 +20,13 @@ services:
       interval: 5s
       timeout: 3s
       retries: 20
+    restart: unless-stopped
     profiles: ["postgres"]
 
   backend:
     build:
-      context: ../
-      dockerfile: app/Dockerfile
+      context: ../backend          # ← 关键：切到真实后端目录
+      dockerfile: Dockerfile
     image: minipost-backend
     container_name: minipost_backend
     depends_on:
@@ -34,20 +38,30 @@ services:
       APP_PORT: 8000
     expose:
       - "8000"
+    # 用 Python 自带库做健康检查，避免额外安装 curl/wget
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/docs', timeout=2)"]
+      interval: 5s
+      timeout: 3s
+      retries: 40
+    restart: unless-stopped
     profiles: ["backend"]
 
   web:
     build:
-      context: ../static
+      context: ../frontend          # ← 关键：改为真实前端目录
       dockerfile: Dockerfile
+      args:
+        # 可选：在大陆环境可传镜像源加速 npm（留空则不设置）
+        NPM_REGISTRY: ${NPM_REGISTRY:-}
     image: minipost-web
     container_name: minipost_web
     depends_on:
-      - backend
+      backend:
+        condition: service_started  # Caddy 可先起；若要等后端健康，也可改 service_healthy
     ports:
-      - "8000:8000"     # 对外暴露管理端（如用公网反代，可改为 80/443）
-    environment:
-      UPSTREAM: http://backend:8000
+      - "8000:80"                   # ← 关键：宿主 8000 -> 容器 80（Caddy 监听 80）
+    restart: unless-stopped
     profiles: ["web"]
 
 volumes:
