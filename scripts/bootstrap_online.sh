@@ -1,50 +1,41 @@
 #!/usr/bin/env bash
 # =========================================================
-# minipost 一键部署（零交互 · 极简进度条 · 公网IP展示）
-# 说明：
-#  - 所有繁杂输出写入日志，仅显示单行彩色进度条 + 百分比
-#  - 零交互最佳默认（.deploy.env 可覆盖）
-#  - 自动安装/优化 Docker、镜像加速器探测写入、ZRAM/Swap、THP、BBR、ulimits、UFW、fail2ban、自动安全更新
-#  - 自动选择标准/Adopt（.repo）模式，同步仓库 → 构建 → 启动 → 迁移（限时重试，不阻塞）
-#  - 结束自动展示公网IP访问地址，并提供一行日志命令
-# 适配：Ubuntu 24.04 LTS（root）
+# minipost 一键部署（零交互 · 极简进度条 · 失败必给一键日志指令 · 公网IP展示）
 # =========================================================
-
 set -Eeuo pipefail
 
-# ========== 主题与 UI ==========
+# ===== 主题 / 颜色 =====
 COL_RESET="\033[0m"; COL_DIM="\033[2m"; COL_MUTE="\033[90m"
-COL_OK="\033[38;5;84m"     # 绿色
-COL_WARN="\033[38;5;214m"  # 琥珀
-COL_ERR="\033[38;5;203m"   # 红
-COL_BAR_FG="\033[38;5;48m" # 进度条前景
-COL_BAR_BG="\033[38;5;240m"
-BAR_LEN=28
-SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
+COL_OK="\033[38;5;84m"; COL_WARN="\033[38;5;214m"; COL_ERR="\033[38;5;203m"
+COL_BAR_FG="\033[38;5;48m"; COL_BAR_BG="\033[38;5;240m"
+BAR_LEN=28; SPIN=(⠋ ⠙ ⠹ ⠸ ⠼ ⠴ ⠦ ⠧ ⠇ ⠏)
 
 hide_cursor(){ tput civis 2>/dev/null || true; }
 show_cursor(){ tput cnorm 2>/dev/null || true; }
 on_exit(){ show_cursor; echo; }
 trap on_exit EXIT
 
+# ===== 进度条 =====
 STEP=0; STEPS=13
-PCT(){ python3 - <<PY 2>/dev/null || awk 'BEGIN{print int('$1'/'$2'*100)}'
+pct(){ python3 - <<PY 2>/dev/null || awk 'BEGIN{print int('$1'/'$2'*100)}'
 print(int($1/$2*100))
 PY
 }
-bar_draw(){ # $1 pct [msg]
-  local pct="$1"; shift; local msg="${*:-}"
-  local fill=$(( pct*BAR_LEN/100 )); [ $fill -gt $BAR_LEN ] && fill=$BAR_LEN
+bar_draw(){ # $1 pct, $2 msg
+  local p="$1"; local msg="$2"
+  [ "$p" -gt 100 ] && p=100
+  local fill=$(( p*BAR_LEN/100 )); [ $fill -gt $BAR_LEN ] && fill=$BAR_LEN
   local empty=$(( BAR_LEN-fill ))
   local filled=$(printf '█%.0s' $(seq 1 $fill))
   local blanks=$(printf '░%.0s' $(seq 1 $empty))
-  printf "\r ${COL_BAR_FG}[${filled}${COL_BAR_BG}${blanks}${COL_BAR_FG}]${COL_RESET} %3d%%  %s" "$pct" "$msg"
+  printf "\r ${COL_BAR_FG}[${filled}${COL_BAR_BG}${blanks}${COL_BAR_FG}]${COL_RESET} %3d%%  %s" "$p" "$msg"
 }
-tick_ok(){ printf "  ${COL_OK}✓${COL_RESET}"; }
-tick_warn(){ printf "  ${COL_WARN}⚠${COL_RESET}"; }
-tick_err(){ printf "  ${COL_ERR}✘${COL_RESET}"; }
 
-# ========== 变量与日志 ==========
+ok_mark(){ printf "  ${COL_OK}✓${COL_RESET}\n"; }
+warn_mark(){ printf "  ${COL_WARN}⚠${COL_RESET}\n"; }
+err_mark(){ printf "  ${COL_ERR}✘${COL_RESET}\n"; }
+
+# ===== 变量 / 日志 =====
 set +u
 [ -f ".deploy.env" ] && { set -a; . ".deploy.env"; set +a; }
 [ -f "/opt/minipost/.deploy.env" ] && { set -a; . "/opt/minipost/.deploy.env"; set +a; }
@@ -55,20 +46,20 @@ set +u
 : "${EDITOR_PORT:=6006}"
 : "${EDITOR_USER:=daddy}"
 : "${EDITOR_PASS:=20240314AaA#}"
-: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"  # 运行中可能被改写为 .repo 路径
+: "${COMPOSE_FILE:=${BASE_DIR}/deploy/docker-compose.yml}"   # 运行中可能被改写为 .repo 路径
 : "${COMPOSE_PROFILES:=web,backend,postgres,editor}"
 : "${AUTO_OPEN_UFW:=yes}"
 
-# —— 零交互最佳默认 ——（可在 .deploy.env 覆盖）
-: "${AUTO_PRUNE_OLD:=no}"            # 避免误删数据
-: "${DO_BACKUP_DATA:=yes}"           # 备份 BASE_DIR/data（如存在）
+# 零交互最佳默认（可用 .deploy.env 覆盖）
+: "${AUTO_PRUNE_OLD:=no}"
+: "${DO_BACKUP_DATA:=yes}"
 : "${AUTO_FAIL2BAN:=yes}"
 : "${AUTO_UNATTENDED_UPDATES:=yes}"
 : "${AUTO_TUNE_NET:=yes}"
 : "${AUTO_ULIMITS:=yes}"
 : "${AUTO_ZRAM_SWAP:=yes}"
 : "${SWAP_SIZE_GB:=8}"
-: "${DOCKER_MIRROR_URL:=}"           # 额外镜像加速（逗号/空格分隔）
+: "${DOCKER_MIRROR_URL:=}"
 : "${DEFAULT_MIRRORS:="https://docker.m.daocloud.io https://hub-mirror.c.163.com https://mirror.ccs.tencentyun.com"}"
 : "${GIT_AUTH_HEADER:=}"
 export BASE_DIR SERVICE_NAME APP_PORT EDITOR_PORT COMPOSE_PROFILES
@@ -78,29 +69,71 @@ install -d -m 0755 "${BASE_DIR}/logs"
 LOG_FILE="${BASE_DIR}/logs/bootstrap_$(date +%Y%m%d_%H%M%S).log"
 ln -sfn "$LOG_FILE" "${BASE_DIR}/logs/bootstrap.latest.log"
 
-# ========== 工具 ==========
-ensure_env_var(){ local k="$1" v="$2" f="${BASE_DIR}/.deploy.env"; [ -f "$f" ] || { echo "# minipost 部署环境（自动生成）" > "$f"; chmod 600 "$f"; }; grep -q "^${k}=" "$f" 2>/dev/null || echo "${k}=${v}" >> "$f"; }
-merge_daemon_json(){ local key="$1" value="$2" f="/etc/docker/daemon.json"; install -d -m 0755 /etc/docker; [ -f "$f" ] || echo '{}' > "$f"; tmp="$(mktemp)"; jq "$key = $value" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"; }
-spin_run(){ # 带旋转动画的后台运行：spin_run "描述" "命令"
+# ===== 工具函数 =====
+ensure_env_var(){ # ensure_env_var KEY VAL
+  local k="$1" v="$2" f="${BASE_DIR}/.deploy.env"
+  install -d -m 0755 "${BASE_DIR}"
+  [ -f "$f" ] || { echo "# minipost 部署环境（自动生成）" > "$f"; chmod 600 "$f"; }
+  grep -q "^${k}=" "$f" 2>/dev/null || echo "${k}=${v}" >> "$f"
+}
+merge_daemon_json(){ # merge_daemon_json '.["key"]' 'json'
+  local key="$1" value="$2" f="/etc/docker/daemon.json"
+  install -d -m 0755 /etc/docker
+  [ -f "$f" ] || echo '{}' > "$f"
+  local tmp; tmp="$(mktemp)"
+  jq "$key = $value" "$f" > "$tmp" && cat "$tmp" > "$f" && rm -f "$tmp"
+}
+detect_public_ip(){
+  local ip=""
+  ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null || true)"
+  [ -z "$ip" ] && ip="$(ip route get 1 2>/dev/null | awk '/src/{print $7; exit}')"
+  echo "${ip:-未知}"
+}
+
+# ——失败时：打印“一键日志指令”（可直接复制粘贴）——
+fail_with_help(){ # $1 描述
+  local desc="$1"
+  show_cursor
+  echo
+  echo -e "${COL_ERR}✘ 失败：${desc}${COL_RESET}"
+  echo -e "${COL_DIM}请复制执行以下任一命令查看详情：${COL_RESET}"
+  echo "  tail -n 200 ${BASE_DIR}/logs/bootstrap.latest.log"
+  echo "  docker compose -f ${COMPOSE_FILE} logs backend --tail=200"
+  echo "  docker compose -f ${COMPOSE_FILE} logs editor  --tail=200"
+  exit 1
+}
+
+# 带旋转动画的任务
+spin_run(){ # spin_run "描述" "命令"
   local desc="$1"; shift; local cmd="$*"
-  STEP=$((STEP+1)); local pct=$(PCT $STEP $STEPS); hide_cursor; bar_draw "$pct" "${desc}…"
+  STEP=$((STEP+1)); local p=$(pct $STEP $STEPS)
+  hide_cursor; bar_draw "$p" "${desc}…"
   { bash -lc "$cmd" >>"$LOG_FILE" 2>&1; echo $? >"$LOG_FILE.rc"; } &
   local pid=$! i=0
   while kill -0 $pid 2>/dev/null; do
-    printf "\r "; bar_draw "$pct" "${desc}… ${COL_MUTE}${SPIN[$((i%${#SPIN[@]}))]}${COL_RESET}"
-    i=$((i+1)); sleep 0.12
+    printf "\r "; bar_draw "$p" "${desc}… ${COL_MUTE}${SPIN[$((i%${#SPIN[@]}))]}${COL_RESET}"
+    i=$((i+1)); sleep 0.1
   done
   local rc=$(cat "$LOG_FILE.rc" 2>/dev/null || echo 1); rm -f "$LOG_FILE.rc"
-  if [ $rc -eq 0 ]; then bar_draw "$pct" "${desc} 完成"; tick_ok; else bar_draw "$pct" "${desc} 失败"; tick_err; echo; echo "→ 日志：$LOG_FILE"; exit $rc; fi
+  printf "\r "; bar_draw "$p" "${desc}"
+  if [ $rc -eq 0 ]; then ok_mark; else err_mark; fail_with_help "$desc"; fi
 }
+
+# 静默任务（无动画）
 run_silent(){ # run_silent "描述" "命令"
   local desc="$1"; shift; local cmd="$*"
-  STEP=$((STEP+1)); local pct=$(PCT $STEP $STEPS); hide_cursor; bar_draw "$pct" "${desc}…"
-  if bash -lc "$cmd" >>"$LOG_FILE" 2>&1; then bar_draw "$pct" "${desc} 完成"; tick_ok; else bar_draw "$pct" "${desc} 失败"; tick_err; echo; echo "→ 日志：$LOG_FILE"; exit 1; fi
+  STEP=$((STEP+1)); local p=$(pct $STEP $STEPS)
+  hide_cursor; bar_draw "$p" "${desc}…"
+  if bash -lc "$cmd" >>"$LOG_FILE" 2>&1; then
+    printf "\r "; bar_draw "$p" "${desc}"; ok_mark
+  else
+    printf "\r "; bar_draw "$p" "${desc}"; err_mark; fail_with_help "$desc"
+  fi
 }
-detect_public_ip(){ local ip=""; ip="$(curl -fsS --max-time 5 https://api.ipify.org 2>/dev/null || true)"; [ -z "$ip" ] && ip="$(curl -fsS --max-time 5 https://ifconfig.me 2>/dev/null || true)"; [ -z "$ip" ] && ip="$(dig +short myip.opendns.com @resolver1.opendns.com 2>/dev/null || true)"; [ -z "$ip" ] && ip="$(ip route get 1 2>/dev/null | awk '/src/{print $7; exit}')"; echo "${ip:-未知}"; }
 
-# ========== 开始 ==========
+# ===== 开始 =====
 echo -e "${COL_DIM}安装日志 -> ${LOG_FILE}${COL_RESET}"
 [ "$(id -u)" -eq 0 ] || { echo -e "${COL_ERR}✘ 需要 root 运行${COL_RESET}"; exit 1; }
 
@@ -108,10 +141,10 @@ echo -e "${COL_DIM}安装日志 -> ${LOG_FILE}${COL_RESET}"
 spin_run "安装基础依赖" "
   export DEBIAN_FRONTEND=noninteractive
   apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools fail2ban unattended-upgrades > /dev/null
+  apt-get install -y ca-certificates curl gnupg lsb-release jq ufw zram-tools fail2ban unattended-upgrades
 "
 
-# 2/13 Docker/Compose
+# 2/13 Docker & Compose
 spin_run "安装/校验 Docker + Compose" "
   install -d -m 0755 /etc/apt/keyrings
   if ! command -v docker >/dev/null 2>&1; then
@@ -156,7 +189,7 @@ EOF
   systemctl restart docker
 "
 
-# 5/13 ZRAM/Swap
+# 5/13 ZRAM / Swap
 run_silent "配置 ZRAM/Swap" "
   MEM_GB=\$(awk '/MemTotal/{printf \"%.0f\", \$2/1024/1024}' /proc/meminfo)
   if [ \"$AUTO_ZRAM_SWAP\" = \"yes\" ]; then
@@ -231,7 +264,7 @@ run_silent "启用安全组件" "
   fi
 "
 
-# 9/13 回写 .deploy.env
+# 9/13 回写 .deploy.env（你刚才卡在这里——现在失败会给一键日志指令）
 run_silent "写入部署环境参数" "
   ensure_env_var APP_PORT \"${APP_PORT}\"
   ensure_env_var EDITOR_PORT \"${EDITOR_PORT}\"
@@ -289,19 +322,18 @@ spin_run "启动服务" "
   COMPOSE_PROFILES='${COMPOSE_PROFILES}' docker compose -f '${COMPOSE_FILE}' up -d
 "
 
-# —— 迁移（限时重试，不阻塞 UI）——
-echo -ne "\n"
-STEP=$STEPS; pct=$(PCT $STEPS $STEPS); bar_draw "$pct" "执行数据库迁移（限时重试）…"; printf "${COL_MUTE}\r"
-
+# —— 迁移（限时重试，不阻塞）——
+STEP=$STEPS; p=$(pct $STEPS $STEPS); bar_draw "$p" "执行数据库迁移（限时重试）…"
 migrate_try(){ timeout 90s docker compose -f "${COMPOSE_FILE}" exec -T backend sh -lc 'python -m alembic upgrade head' >>"$LOG_FILE" 2>&1; }
 if migrate_try; then
-  bar_draw 100 "迁移完成"; tick_ok
+  printf "\r "; bar_draw 100 "迁移完成"; ok_mark
 else
   sleep 5
-  if migrate_try; then bar_draw 100 "迁移完成（重试）"; tick_ok
+  if migrate_try; then
+    printf "\r "; bar_draw 100 "迁移完成（重试）"; ok_mark
   else
-    bar_draw 100 "迁移失败"; tick_warn
-    echo -e "\n${COL_WARN}提示：后端容器可能在重启或依赖未就绪；请用下方日志命令查看。${COL_RESET}"
+    printf "\r "; bar_draw 100 "迁移失败"; warn_mark
+    fail_with_help "数据库迁移（alembic upgrade head）"
   fi
 fi
 
@@ -309,9 +341,9 @@ fi
 curl -fsSI --max-time 3 "http://127.0.0.1:${APP_PORT}/" >/dev/null 2>&1 || true
 curl -fsSI --max-time 3 "http://127.0.0.1:${EDITOR_PORT}/login" >/dev/null 2>&1 || true
 
-# —— 展示公网 IP 与快捷命令 —— 
+# —— 展示公网 IP —— 
 PUBIP="$(detect_public_ip)"
-echo -e "\n${COL_OK}✔ 部署完成${COL_RESET}"
+echo -e "${COL_OK}✔ 部署完成${COL_RESET}"
 echo -e "${COL_DIM}访问地址（公网IP 自动探测）${COL_RESET}"
 echo -e "  管理端：     ${COL_OK}http://${PUBIP}:${APP_PORT}${COL_RESET}"
 echo -e "  模板编辑器： ${COL_OK}http://${PUBIP}:${EDITOR_PORT}${COL_RESET}  ${COL_DIM}（账号：${EDITOR_USER}）${COL_RESET}"
