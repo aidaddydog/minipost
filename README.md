@@ -1,6 +1,6 @@
-# Minipost (ERP / OMS / TMS Skeleton)
+# minipost (ERP / OMS / TMS Skeleton)
 
-> 前后端分离 · FastAPI + PostgreSQL · Vue3 + Vite · 多租户 · 面单上传（列表/记录/换单任务/审计）
+> 前后端分离 · FastAPI + PostgreSQL · Vue3 + Vite · 多租户 
 
 ## 一键上线（推荐）
 在服务器（Ubuntu 22+/24+）执行：
