@@ -1,0 +1,27 @@
+{% set page_title = "登录 - minipost" %}
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>{{ page_title }}</title>
+  <link rel="stylesheet" href="/static/auth/login.css"/>
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="card">
+      <div class="logo"></div>
+      <h1>登录</h1>
+      <form id="loginForm">
+        <label>用户名</label>
+        <input type="text" name="username" placeholder="用户名" required/>
+        <label>密码</label>
+        <input type="password" name="password" placeholder="密码" required/>
+        <button type="submit">登录</button>
+      </form>
+      <p id="err" class="err">{{ error }}</p>
+    </div>
+  </div>
+  <script src="/static/auth/login.js"></script>
+</body>
+</html>

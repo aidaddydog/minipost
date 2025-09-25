@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>minipost</title>
+  <link rel="stylesheet" href="/static/nav-shell/nav-shell.css"/>
+</head>
+<body>
+  <div class="nav-shell">
+    <div class="header">\
+  <a class="logo" href="/admin" aria-label="\uc0\u20202 \u34920 \u30424 "></a>\
+  <div class="header-gap-left" aria-hidden="true"></div>
+  </div>
+
+  <div class="subrow" id="subRow" aria-label="\uc0\u27425 \u32423 \u23548 \u33322 \u25972 \u34892 ">\
+<div class="subrow-inner">\
+  <div class="subbar-offset" aria-hidden="true"></div>
+
+  <div class="tabrow" id="tabRow" aria-label="\uc0\u19977 \u32423 \u39029 \u31614 \u21345 \u29255 \u34892 ">\
+<div class="tabrow-inner">\
+  <div class="tab-offset" aria-hidden="true"></div>
+
+  <!-- 内容插槽：业务页面可在服务器端填充 -->
+  {% if content_html %}
+  {% raw %}{{ content_html | safe }}{% endraw %}
+  {% else %}
+  <div class="shell"><div class="content"><h2> </h2><p> </p></div></div>
+  {% endif %}
+
+  <script src="/static/nav-shell/nav-shell.js"></script>
+</body>
+</html>

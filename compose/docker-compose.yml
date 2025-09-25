@@ -1,0 +1,37 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: minipost_pg
+    environment:
+      POSTGRES_DB: ${DB_NAME:-minipost}
+      POSTGRES_USER: ${DB_USER:-minipost}
+      POSTGRES_PASSWORD: ${DB_PASS:-minipost}
+    volumes:
+      - ../data/pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost} -d ${DB_NAME:-minipost}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: minipost_web
+    depends_on:
+      postgres:
+        condition: service_healthy
+    env_file:
+      - ../.deploy.env
+    ports:
+      - "${APP_PORT:-8000}:8000"
+    volumes:
+      - ../logs:/app/logs
+      - ../data:/app/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 30
+      start_period: 20s

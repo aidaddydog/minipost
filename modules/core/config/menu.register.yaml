@@ -1,0 +1,5 @@
+l1:
+  - { key: admin, text: "管理", href: "/admin", order: 5, require_all: ["system.admin"] }
+l2:
+  "/admin":
+    - { key: users, text: "用户管理", href: "/admin/users", order: 10, require_all: ["users.manage"], visible_when_denied: true }

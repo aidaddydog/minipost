@@ -1,0 +1,36 @@
+l1:
+  - { key: orders,   text: "订单",   href: "/orders",    order: 10, require_any: ["orders.view"], visible_when_denied: true }
+  - { key: products, text: "商品",   href: "/products",  order: 20, require_any: ["products.view"], visible_when_denied: true }
+  - { key: logistics,text: "物流",   href: "/logistics", order: 30, require_any: ["logistics.view"], visible_when_denied: true }
+  - { key: settings, text: "设置",   href: "/settings",  order: 40, require_any: ["settings.view"], visible_when_denied: true }
+
+l2:
+  "/orders":
+    - { key: prealert,     text: "预报",           href: "/orders/prealert",       order: 10 }
+    - { key: list,         text: "订单列表",       href: "/orders/list",           order: 20 }
+    - { key: label_upload, text: "面单上传",       href: "/orders/label-upload",   order: 30 }
+    - { key: track,        text: "订单轨迹",       href: "/orders/track",          order: 40 }
+    - { key: rules,        text: "订单规则",       href: "/orders/rules",          order: 50 }
+  "/products":
+    - { key: list,         text: "商品列表",       href: "/products/list",         order: 10 }
+    - { key: custom_rules, text: "定制规则",       href: "/products/custom-rules", order: 20 }
+  "/logistics":
+    - { key: rules,        text: "物流规则",       href: "/logistics/rules",       order: 10 }
+    - { key: channels,     text: "物流渠道",       href: "/logistics/channels",    order: 20 }
+    - { key: address,      text: "地址管理",       href: "/logistics/address",     order: 30 }
+  "/settings":
+    - { key: warehouse,    text: "仓库设置",       href: "/settings/warehouse",    order: 10 }
+    - { key: provider,     text: "服务商授权",     href: "/settings/provider-auth",order: 20 }
+    - { key: shop,         text: "店铺授权",       href: "/settings/shop-auth",    order: 30 }
+    - { key: client,       text: "客户端管理",     href: "/settings/client",       order: 40 }
+    - { key: system,       text: "系统设置",       href: "/settings/system",       order: 50 }
+
+l3:
+  "/orders/prealert":
+    - { key: pickup, text: "预约取件", href: "/orders/prealert/pickup", order: 10 }
+    - { key: scan,   text: "扫码发货", href: "/orders/prealert/scan",   order: 20 }
+    - { key: list,   text: "预报列表", href: "/orders/prealert/list",   order: 30 }
+
+  "/orders/label-upload":
+    - { key: list,   text: "面单列表", href: "/orders/label-upload/list", order: 10 }
+    - { key: logs,   text: "上传记录", href: "/orders/label-upload/logs", order: 20 }
