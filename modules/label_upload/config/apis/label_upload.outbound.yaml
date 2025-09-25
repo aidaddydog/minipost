@@ -1,6 +1,0 @@
-# 对外 API（示例占位）
-paths:
-  /api/label-upload:
-    post:
-      summary: "上传面单"
-      description: "上传面单 PDF/PNG/JPG"
