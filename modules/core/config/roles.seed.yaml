@@ -1,0 +1,4 @@
+# 预置角色与权限（仅示例，实际权限由各模块 permissions.register.yaml 聚合产生）
+admin: "管理员（全权限）"
+operator: "操作员（常用操作+查看）"
+auditor: "审计员（只读）"

@@ -1,0 +1,9 @@
+name: "logistics_channel"
+title: "物流渠道"
+version: "0.1.0"
+api_prefix: "/api/logistics"
+enabled: true
+permissions:
+  - "logistics_channel:page:view"
+  - "logistics_channel:data:list"
+migrations_path: "migrations/versions-logistics_channel/"

@@ -1,0 +1,5 @@
+orders:
+  - text: "面单上传"
+    href: "/orders/label-upload"
+    order: 30
+    icon: ""

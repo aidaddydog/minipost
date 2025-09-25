@@ -1,0 +1,9 @@
+name: "label_upload"
+title: "面单上传"
+version: "0.1.0"
+api_prefix: "/api/label-upload"
+enabled: true
+permissions:
+  - "label_upload:page:view"
+  - "label_upload:data:list"
+migrations_path: "migrations/versions-label_upload/"

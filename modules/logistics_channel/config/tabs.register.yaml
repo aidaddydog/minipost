@@ -1,0 +1,5 @@
+"/logistics/channels":
+  - { key: "platform", text: "平台",  href: "/logistics/channels/platform",   order: 10 }
+  - { key: "self",     text: "自发",  href: "/logistics/channels/self",       order: 20 }
+  - { key: "overseas", text: "海外仓",href: "/logistics/channels/overseas",   order: 30 }
+  - { key: "custom",   text: "自定义",href: "/logistics/channels/custom",     order: 40 }
