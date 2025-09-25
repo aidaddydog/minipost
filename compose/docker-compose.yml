@@ -1,0 +1,35 @@
+version: "3.9"
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    env_file:
+      - .deploy.env
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ../logs:/app/logs
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8000/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: minipost
+      POSTGRES_PASSWORD: minipost
+      POSTGRES_DB: minipost
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U minipost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+volumes:
+  pgdata:

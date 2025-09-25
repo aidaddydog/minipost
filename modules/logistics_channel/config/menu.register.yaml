@@ -1,0 +1,12 @@
+menus:
+  - section: logistics
+    text: "物流"
+    path: "/logistics"
+    children:
+      - text: "物流渠道"
+        href: "/logistics/channels"
+        tabs:
+          - {key: platform, text: 平台物流, href: /logistics/channels/platform}
+          - {key: self, text: 自发物流, href: /logistics/channels/self}
+          - {key: overseas, text: 海外仓, href: /logistics/channels/overseas}
+          - {key: custom, text: 自定义物流, href: /logistics/channels/custom}

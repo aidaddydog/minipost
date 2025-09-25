@@ -1,0 +1,6 @@
+menus:
+  - section: orders
+    text: "订单"
+    path: "/orders"
+    children:
+      - {text: "面单上传", href: "/orders/label-upload"}

@@ -1,0 +1,5 @@
+{% extends "nav_shell.html" %}{% block extra_head %}{% endblock %}{% block content %}{% endblock %}
+{% block extra_scripts %}
+  <script>window.MINIPOST_INIT = Object.assign({}, window.MINIPOST_INIT||{}, {locked_path:'/logistics',locked_sub:'/logistics/channels',locked_tab:'/logistics/channels/platform'});</script>
+  <script defer src="/static/logistics/logistics_channel.js"></script>
+{% endblock %}
