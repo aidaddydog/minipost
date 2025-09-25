@@ -1,0 +1,5 @@
+# 面单上传模块菜单注册（与 UI 对齐）
+l2:
+  - owner: "/orders"
+    items:
+      - { text: "面单上传", href: "/orders/label-upload" }

@@ -1,0 +1,4 @@
+# Webhook（示例占位）
+events:
+  - key: label.upload.completed
+    target: https://example.com/webhook

@@ -1,0 +1,7 @@
+l2:
+  - owner: "/logistics"
+    items:
+      - { text: "平台物流", href: "/logistics/channels?type=platform" }
+      - { text: "自发物流", href: "/logistics/channels?type=self" }
+      - { text: "海外仓",   href: "/logistics/channels?type=overseas" }
+      - { text: "自定义物流", href: "/logistics/channels?type=custom" }
