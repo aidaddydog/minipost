@@ -1,0 +1,20 @@
+{
+  "l1": [
+    {
+      "key": "settings",
+      "text": "设置",
+      "href": "/settings",
+      "order": 90
+    }
+  ],
+  "l2": {
+    "/settings": [
+      {
+        "text": "账号与权限",
+        "href": "/settings/rbac",
+        "order": 10
+      }
+    ]
+  },
+  "l3": {}
+}

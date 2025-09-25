@@ -1,0 +1,11 @@
+roles:
+  - code: admin
+    name: 管理员
+    perms: ["*"]
+  - code: operator
+    name: 运营
+    perms: ["orders.view","orders.manage"]
+perms:
+  - { key: "orders.view",   name: "查看订单" }
+  - { key: "orders.manage", name: "管理订单" }
+  - { key: "rbac.manage",   name: "管理角色权限" }
