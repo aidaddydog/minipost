@@ -1,38 +1,38 @@
-# 路径: compose/docker-compose.yml
-version: "3.9"
-
-x-health: &health
-  interval: 5s
-  timeout: 3s
-  retries: 30
-  start_period: 5s
+# docker compose v2 规范：无需 version 字段
+# 注意：该文件相对路径基于 compose/ 目录
 
 services:
+
   postgres:
     image: postgres:16-alpine
     environment:
-      POSTGRES_USER: ${POSTGRES_USER:-minipost}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minipost_pass}
-      POSTGRES_DB: ${POSTGRES_DB:-minipost}
+      POSTGRES_USER: ${DB_USER:-minipost}
+      POSTGRES_PASSWORD: ${DB_PASS:-minipost_pass}
+      POSTGRES_DB: ${DB_NAME:-minipost}
       TZ: ${TZ:-Asia/Shanghai}
     volumes:
       - ${DATA_ROOT:-/opt/minipost/data}/pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1"]
-      <<: *health
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1 || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     restart: unless-stopped
 
   web:
     build:
-      context: .
+      context: ..
       dockerfile: docker/Dockerfile
+    working_dir: /app
     depends_on:
       postgres:
         condition: service_healthy
     env_file:
-      - .deploy.env
+      - ../.deploy.env
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER:-minipost}:${POSTGRES_PASSWORD:-minipost_pass}@postgres:5432/${POSTGRES_DB:-minipost}
+      # 统一以 DB_* 变量为准（参见 .deploy.env）
+      DATABASE_URL: postgresql://${DB_USER:-minipost}:${DB_PASS:-minipost_pass}@postgres:${DB_PORT:-5432}/${DB_NAME:-minipost}
       APP_SECRET_KEY: ${APP_SECRET_KEY:-change_me}
       TZ: ${TZ:-Asia/Shanghai}
     ports:
@@ -40,12 +40,25 @@ services:
     volumes:
       - ${DATA_ROOT:-/opt/minipost/data}/files:/app/data/files
       - ${LOG_ROOT:-/opt/minipost/logs}:/app/logs
-    command: ["/bin/bash","-lc","[ -x scripts/reload_nav.sh ] && bash scripts/reload_nav.sh || true; exec gunicorn app.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 90 --access-logfile - --error-logfile -"]
+    # 启动前离线合并导航缓存 → 再启动 Gunicorn
+    command: >
+      sh -lc "
+      [ -x scripts/reload_nav.sh ] && scripts/reload_nav.sh || true;
+      exec gunicorn app.main:app -k uvicorn.workers.UvicornWorker
+        --bind 0.0.0.0:8000
+        --workers ${GUNICORN_WORKERS:-2}
+        --timeout 90
+        --access-logfile - --error-logfile -"
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/healthz || exit 1"]
-      <<: *health
+      # 用 Python socket 做健康检查，避免依赖 curl/wget
+      test: ["CMD-SHELL", "python3 -c \"import socket,sys; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',8000)); s.close()\" || exit 1"]
+      interval: 5s
+      timeout: 3s
+      retries: 30
+      start_period: 5s
     restart: unless-stopped
 
+  # 可选：Nginx 反代 + TLS（按需启用：--profile nginx）
   nginx:
     image: nginx:1.27-alpine
     profiles: ["nginx"]
@@ -53,7 +66,7 @@ services:
       web:
         condition: service_healthy
     volumes:
-      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ../docker/nginx.conf:/etc/nginx/nginx.conf:ro
     ports:
       - "80:80"
       - "443:443"
