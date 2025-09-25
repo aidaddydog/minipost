@@ -1,0 +1,3 @@
+# 仅用于参考，实际导航由 UI 模板控制
+orders:
+  - { text: 面单上传, href: /orders/label-upload }

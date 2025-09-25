@@ -1,0 +1,5 @@
+# label_upload.webhook.yaml
+# 入站 Webhook（承运商/平台回调）
+label_status_push:
+  method: POST
+  path: /api/label-upload/webhook

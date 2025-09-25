@@ -1,0 +1,9 @@
+- role_code: admin
+  role_name: 超级管理员
+  permission_keys: [ "*"]
+- role_code: ops
+  role_name: 运营
+  permission_keys: [ "label_upload.view", "label_upload.import", "label_upload.void", "logistics.view" ]
+- role_code: viewer
+  role_name: 只读
+  permission_keys: [ "label_upload.view", "logistics.view" ]
