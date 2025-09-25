@@ -1,37 +1,60 @@
+# 路径: compose/docker-compose.yml
+version: "3.9"
+
+x-health: &health
+  interval: 5s
+  timeout: 3s
+  retries: 30
+  start_period: 5s
+
 services:
   postgres:
-    image: postgres:16
-    container_name: minipost_pg
+    image: postgres:16-alpine
     environment:
-      POSTGRES_DB: ${DB_NAME:-minipost}
-      POSTGRES_USER: ${DB_USER:-minipost}
-      POSTGRES_PASSWORD: ${DB_PASS:-minipost}
+      POSTGRES_USER: ${POSTGRES_USER:-minipost}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-minipost_pass}
+      POSTGRES_DB: ${POSTGRES_DB:-minipost}
+      TZ: ${TZ:-Asia/Shanghai}
     volumes:
-      - ../data/pg:/var/lib/postgresql/data
+      - ${DATA_ROOT:-/opt/minipost/data}/pg:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-minipost} -d ${DB_NAME:-minipost}"]
-      interval: 5s
-      timeout: 3s
-      retries: 20
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER} -d $${POSTGRES_DB} -h 127.0.0.1"]
+      <<: *health
+    restart: unless-stopped
 
   web:
     build:
-      context: ..
+      context: .
       dockerfile: docker/Dockerfile
-    container_name: minipost_web
     depends_on:
       postgres:
         condition: service_healthy
     env_file:
-      - ../.deploy.env
+      - .deploy.env
+    environment:
+      DATABASE_URL: postgresql://${POSTGRES_USER:-minipost}:${POSTGRES_PASSWORD:-minipost_pass}@postgres:5432/${POSTGRES_DB:-minipost}
+      APP_SECRET_KEY: ${APP_SECRET_KEY:-change_me}
+      TZ: ${TZ:-Asia/Shanghai}
     ports:
       - "${APP_PORT:-8000}:8000"
     volumes:
-      - ../logs:/app/logs
-      - ../data:/app/data
+      - ${DATA_ROOT:-/opt/minipost/data}/files:/app/data/files
+      - ${LOG_ROOT:-/opt/minipost/logs}:/app/logs
+    command: ["/bin/bash","-lc","[ -x scripts/reload_nav.sh ] && bash scripts/reload_nav.sh || true; exec gunicorn app.main:app -k uvicorn.workers.UvicornWorker --bind 0.0.0.0:8000 --workers ${GUNICORN_WORKERS:-2} --timeout 90 --access-logfile - --error-logfile -"]
     healthcheck:
-      test: ["CMD-SHELL", "curl -fsS http://localhost:8000/healthz || exit 1"]
-      interval: 10s
-      timeout: 3s
-      retries: 30
-      start_period: 20s
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:8000/healthz || exit 1"]
+      <<: *health
+    restart: unless-stopped
+
+  nginx:
+    image: nginx:1.27-alpine
+    profiles: ["nginx"]
+    depends_on:
+      web:
+        condition: service_healthy
+    volumes:
+      - ./docker/nginx.conf:/etc/nginx/nginx.conf:ro
+    ports:
+      - "80:80"
+      - "443:443"
+    restart: unless-stopped
