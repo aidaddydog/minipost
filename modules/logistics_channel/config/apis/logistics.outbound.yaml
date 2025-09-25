@@ -1,7 +1,0 @@
-# logistics.outbound.yaml
-channels:
-  method: GET
-  path: /api/logistics/channels
-carriers:
-  method: GET
-  path: /api/logistics/carriers

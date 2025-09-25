@@ -1,5 +1,0 @@
-# logistics.webhook.yaml
-# 预留物流回调
-carrier_push:
-  method: POST
-  path: /api/logistics/webhook
