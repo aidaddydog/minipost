@@ -1,0 +1,20 @@
+:root{ --bg:#fff; --ink:#111827; --muted:#6b7280; --primary:#0f172a; --rail:#f6f6f6; --pill:#ffdf5d; }
+*{ box-sizing:border-box }
+body{ margin:0; font:14px/1.6 system-ui, -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif; color:var(--ink); background:var(--bg); }
+.ns-header{ display:flex; align-items:center; gap:16px; padding:10px 16px; border-bottom:1px solid #eee; position:sticky; top:0; background:#fff; z-index:10; }
+.ns-logo{ font-weight:700; color:var(--primary); text-decoration:none; }
+.ns-nav{ flex:1; display:flex; gap:8px; padding:6px; background:var(--rail); border-radius:999px; position:relative; }
+.ns-pill{ position:absolute; top:50%; transform:translateY(-50%); height:24px; background:var(--pill); border-radius:999px; transition:all .2s ease; z-index:0; }
+.ns-link{ position:relative; z-index:1; padding:0 14px; height:28px; display:flex; align-items:center; gap:6px; color:#334155; text-decoration:none; border-radius:8px; white-space:nowrap; }
+.ns-link:hover{ color:#0f172a }
+.ns-link.active{ font-weight:600; color:#111827 }
+.ns-right{ display:flex; align-items:center; gap:10px; }
+.ns-login,.ns-logout{ appearance:none; border:1px solid #111827; background:#111827; color:#fff; border-radius:999px; height:28px; padding:0 12px; cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; }
+.ns-login{ border-color:#111827; }
+.ns-user{ display:flex; align-items:center; gap:10px; color:var(--muted); }
+.ns-sub{ padding:10px 16px; display:flex; gap:10px; flex-wrap:wrap; }
+.ns-sub a{ color:#334155; text-decoration:none; padding:4px 8px; border-radius:8px; }
+.ns-sub a.active{ color:#0f172a; font-weight:600; }
+.ns-main{ padding:16px; }
+.ns-empty{ margin-top:40px; color:var(--muted); }
+.ns-disabled{ opacity:.4; pointer-events:none }

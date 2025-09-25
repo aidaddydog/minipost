@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>登录 - minipost</title>
+  <link rel="stylesheet" href="/static/auth/frontend/static/auth/login.css">
+</head>
+<body class="login-page">
+  <div class="box">
+    <h1>minipost</h1>
+    <form method="post" action="/login">
+      <label>用户名</label>
+      <input type="text" name="username" placeholder="admin" required>
+      <label>密码</label>
+      <input type="password" name="password" placeholder="密码" required>
+      {% if error %}<div class="error">{{ error }}</div>{% endif %}
+      <button type="submit">登录</button>
+    </form>
+  </div>
+</body>
+</html>

@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="zh-CN" class="nav-shell">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>minipost · 控制台</title>
+  <link rel="stylesheet" href="/static/nav-shell/frontend/static/nav-shell/nav-shell.css">
+</head>
+<body>
+  <header class="ns-header">
+    <a class="ns-logo" href="/">minipost</a>
+    <nav class="ns-nav" id="nsNav"></nav>
+    <div class="ns-right">
+      <a id="nsLogin" class="ns-login" href="/login">登录</a>
+      <div id="nsUser" class="ns-user" hidden>
+        <span id="nsUserName"></span>
+        <form id="logoutForm" method="post" action="/logout"><button type="submit" class="ns-logout">退出</button></form>
+      </div>
+    </div>
+  </header>
+  <main class="ns-main">
+    <h1>欢迎使用 minipost</h1>
+    <p>这是一个“可拔插”的导航壳层示例。新增模块只需在 <code>modules/*/config/menu.register.yaml</code> 注册导航即可。</p>
+    <p>右上角将根据登录状态显示“登录/退出”。</p>
+    <section id="nsSubNav" class="ns-sub"></section>
+    <section class="ns-content">
+      <div class="ns-empty">请选择上方菜单进入对应模块。</div>
+    </section>
+  </main>
+  <script src="/static/nav-shell/frontend/static/nav-shell/nav-shell.js"></script>
+</body>
+</html>
