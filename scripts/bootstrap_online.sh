@@ -114,7 +114,69 @@ LOG_CMD_NGINX="tail -n 200 /var/log/nginx/error.log"
 # ========= 0) Preflight =========
 need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请先 sudo -i 或 su - 切换到 root 后重试（EUID 必须 0）"; }
 check_os(){ . /etc/os-release || true; [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:-}" = "24.04" ]] || warn "建议 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}（继续尝试）"; }
-ensure_pkgs(){ apt-get update -y >/dev/null; apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true; }
+# ========= 0) Preflight =========
+
+# --- 新增：等待/释放 APT 锁（最多等待 N 秒，超时后温和释放一次） ---
+__apt_quiet_wait() {
+  # 用法：__apt_quiet_wait [秒数]，默认 120s
+  local max="${1:-120}" t=0
+  # 这些进程/锁任何一个存在，都视为 APT 正在占用
+  while \
+    fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+    fuser /var/lib/apt/lists/lock >/dev/null 2>&1 || \
+    pgrep -x dpkg >/dev/null 2>&1 || \
+    pgrep -x apt >/dev/null 2>&1 || \
+    pgrep -x apt-get >/dev/null 2>&1 || \
+    pgrep -x unattended-upgrade >/dev/null 2>&1
+  do
+    ((t++))
+    if (( t >= max )); then
+      break
+    fi
+    sleep 1
+  done
+}
+
+__apt_release_and_repair() {
+  # 温和停止后台升级服务并修复未完成事务（仅在超时或异常时调用）
+  systemctl stop apt-daily.service apt-daily-upgrade.service unattended-upgrades.service \
+    >/dev/null 2>&1 || true
+  # 尝试结束残留前台/后台 APT 进程（不报错）
+  killall -q apt apt-get unattended-upgrade >/dev/null 2>&1 || true
+  # 清理历史锁文件
+  rm -f /var/lib/apt/lists/lock \
+        /var/cache/apt/archives/lock \
+        /var/lib/dpkg/lock-frontend \
+        /var/lib/dpkg/lock 2>/dev/null || true
+  # 修复半配置状态
+  dpkg --configure -a >/dev/null 2>&1 || true
+}
+
+# --- 用这个函数替换原 ensure_pkgs（仅此函数变更） ---
+ensure_pkgs(){
+  export DEBIAN_FRONTEND=noninteractive
+  # 先等待（最多 120s）后台更新释放锁
+  __apt_quiet_wait 120 || true
+  # 如果还没释放，温和释放一次并修复
+  if \
+    fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
+    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
+    pgrep -x unattended-upgrade >/dev/null 2>&1; then
+    __apt_release_and_repair
+  fi
+
+  # 加一些健壮参数与超时，避免再卡住
+  local APT_OPTS=(-y -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20)
+  timeout 300 apt-get update "${APT_OPTS[@]}" >/dev/null 2>&1 || true
+
+  # 再次短等锁（60s），然后安装基础包（非交互、无推荐），整体给 10 分钟超时
+  __apt_quiet_wait 60 || true
+  timeout 600 apt-get install -y --no-install-recommends \
+      ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml \
+      >/dev/null 2>&1 || true
+}
+
 
 check_net_time(){
   if command -v timedatectl >/dev/null 2>&1; then timedatectl set-ntp true >/dev/null 2>&1 || true; else systemctl enable --now chrony >/dev/null 2>&1 || true; fi
