@@ -64,6 +64,23 @@ ensure_docker(){
   docker compose version >/dev/null 2>&1 || die "缺少 docker compose 插件（docker-compose-plugin）"
 }
 
+# ===== 新增：检测并停止旧实例（systemd/compose/容器）=====
+pre_stop_if_installed(){
+  ok "检测并停止旧实例（systemd + compose + 残留容器）"
+  # 1) systemd 单元
+  if systemctl list-unit-files | awk '{print $1}' | grep -qx "minipost.service"; then
+    systemctl stop minipost.service >/dev/null 2>&1 || true
+  fi
+  # 2) 旧 compose 栈
+  if [[ -f "${COMPOSE_FILE}" ]]; then
+    docker compose -f "${COMPOSE_FILE}" down --remove-orphans >/dev/null 2>&1 || true
+  fi
+  # 3) 残留容器（名含 minipost_）
+  local ids
+  ids="$(docker ps -q --filter "name=minipost_")"
+  [[ -n "${ids}" ]] && docker stop ${ids} >/dev/null 2>&1 || true
+}
+
 # ===== 1) 菜单（墨绿色样式）=====
 choose_mode(){
   echo -e "${c_cyn}请选择部署模式（仅输入数字）：${c_rst}"
@@ -113,7 +130,7 @@ load_deploy_env(){
   fi
 }
 
-# ===== ★ 把 PG_* 写入 deploy/postgres.env，供 postgres service 使用 =====
+# ===== 把 PG_* 写入 deploy/postgres.env（供 postgres service 使用）=====
 write_postgres_env(){
   ok "写入 Postgres 环境文件（deploy/postgres.env）"
   mkdir -p "${APP_DIR}/deploy"
@@ -124,15 +141,42 @@ POSTGRES_DB=${PG_DB}
 EOF
 }
 
-# ===== ★ 新增：加载 .deploy.env 后对实际 APP_PORT 进行严格占用检查 =====
-check_port_after_env(){
-  local p=""
+# ===== 新增：按实际 APP_PORT 释放端口（仅限 minipost 相关占用）=====
+ensure_port_free(){
+  local p="${APP_PORT:-8000}"
   if [[ -f "${APP_DIR}/.deploy.env" ]]; then
-    p="$(grep -E '^APP_PORT=' "${APP_DIR}/.deploy.env" | cut -d= -f2- | tr -d '\r')"
+    p="$(grep -E '^APP_PORT=' "${APP_DIR}/.deploy.env" | cut -d= -f2- | tr -d '\r')"; p="${p:-8000}"
   fi
-  p="${p:-${APP_PORT:-8000}}"
+  ok "检查并释放端口 ${p}"
+
+  # 1) 关闭映射到宿主 ${p} 的 Docker 容器
+  local ids
+  ids="$(docker ps --format '{{.ID}} {{.Ports}}' | awk -v P=":${p}->" '$0 ~ P {print $1}')"
+  [[ -n "${ids}" ]] && docker stop ${ids} >/dev/null 2>&1 || true
+
+  # 2) 结束 docker-proxy（端口发布时的转发进程）
+  pkill -f "docker-proxy.*:${p}->"  >/dev/null 2>&1 || true
+  pkill -f "docker-proxy.*-p ${p}:" >/dev/null 2>&1 || true
+
+  # 3) 结束历史 uvicorn/gunicorn（仅限与 minipost 相关的命令行）
+  local pids cmd
+  pids="$(ss -ltnp | awk -v P=":${p}$" '$4 ~ P {print $7}' | sed -n 's/.*pid=\([0-9]\+\).*/\1/p' | sort -u)"
+  for pid in ${pids}; do
+    cmd="$(tr '\0' ' ' < /proc/${pid}/cmdline 2>/dev/null || true)"
+    if echo "${cmd}" | grep -E 'uvicorn|gunicorn|python' | grep -qE 'minipost|/opt/minipost|app\.main'; then
+      kill -TERM "${pid}" >/dev/null 2>&1 || true
+      sleep 1
+      kill -KILL "${pid}" >/dev/null 2>&1 || true
+    fi
+  done
+
+  # 严格校验
   if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then
-    die "端口 ${p} 已被占用，请修改 ${APP_DIR}/.deploy.env 的 APP_PORT 或释放端口后重试"
+    err "端口 ${p} 仍被非 minipost 进程占用："
+    ss -ltnp | awk -v P=":${p}$" '$4 ~ P'
+    die "请手动释放该端口，或修改 ${APP_DIR}/.deploy.env 的 APP_PORT 后重试"
+  else
+    ok "端口 ${p} 已可用"
   fi
 }
 
@@ -292,5 +336,5 @@ report(){
 
 # ===== 主流程（命令之间必须以分号或换行分隔）=====
 need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
-choose_mode; prepare_repo; prepare_env; load_deploy_env; write_postgres_env; check_port_after_env; validate_modules; tune_perf; apply_mode;
+choose_mode; prepare_repo; pre_stop_if_installed; prepare_env; load_deploy_env; write_postgres_env; ensure_port_free; validate_modules; tune_perf; apply_mode;
 build_web; start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
