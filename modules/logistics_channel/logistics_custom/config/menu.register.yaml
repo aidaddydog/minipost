@@ -1,16 +1,6 @@
-# 注册到：物流(L1=30)/物流渠道(L2=1)/自定义物流(L3=60)
-menu:
-  - key: logistics                 # L1
-    title: 物流
-    order: 30
-    children:
-      - key: logistics_channel     # L2
-        title: 物流渠道
-        order: 1
-        children:
-          - key: logistics_custom  # L3
-            title: 自定义物流
-            order: 60
-            route: /logistics/custom
-            template: modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
-            guards: [auth_required, rbac:logistics.view]
+logistics:
+  - text: "物流渠道"
+    href: "/logistics/logistics_channel"
+    order: 1
+    icon: ""
+
