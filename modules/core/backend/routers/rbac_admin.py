@@ -1,11 +1,22 @@
 # -*- coding: utf-8 -*-
 from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
+
 from app.db import get_db
 from app.deps import require_permissions
-from modules.core.backend.schemas.rbac import RoleCreate, PermissionCreate, GrantRolePermissions, BindUserRole
+from modules.core.backend.schemas.rbac import (
+    RoleCreate,
+    PermissionCreate,
+    GrantRolePermissions,
+    BindUserRole,
+)
 from modules.core.backend.models.rbac import User, Role, Permission
-from modules.core.backend.services.rbac import ensure_role, ensure_permission, grant_permissions_to_role, bind_user_role
+from modules.core.backend.services.rbac import (
+    ensure_role,
+    ensure_permission,
+    grant_permissions_to_role,
+    bind_user_role,
+)
 
 router = APIRouter(prefix="/api/rbac", tags=["rbac"])
 
