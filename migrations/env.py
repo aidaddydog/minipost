@@ -14,6 +14,7 @@ from alembic import context
 # 应用侧设置与模型（保持原有导入）
 from app.settings import settings
 from app.db import Base
+from app.common.models_base import Base
 from modules.core.backend.models import rbac  # noqa
 from modules.label_upload.backend.models import upload_log  # noqa
 from modules.logistics_channel.backend.models import carrier  # noqa
