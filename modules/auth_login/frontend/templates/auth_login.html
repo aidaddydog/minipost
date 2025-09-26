@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>登录 - minipost</title>
+  <link rel="icon" href="/static/global/favicon.svg" />
+  <!-- 主题变量：只在 root.css -->
+  <link rel="stylesheet" href="/static/themes/default/root.css" />
+  <link rel="stylesheet" href="/modules_static/auth_login/frontend/static/auth_login.css" />
+</head>
+<body>
+  <div class="login-wrap">
+    <div class="login-card">
+      <div class="logo"></div>
+      <h1 class="title">登录 minipost</h1>
+      <form id="loginForm" class="form" method="post" action="/api/login">
+        <label class="label">用户名</label>
+        <input class="input" type="text" name="username" required />
+        <label class="label">密码</label>
+        <input class="input" type="password" name="password" required />
+        <button class="btn btn--primary" type="submit">登录</button>
+      </form>
+      <div class="msg" id="msg"></div>
+    </div>
+  </div>
+<script>
+document.getElementById('loginForm').addEventListener('submit', async (e) => {
+  e.preventDefault();
+  const fd = new FormData(e.target);
+  const res = await fetch('/api/login', { method: 'POST', body: fd });
+  const msgEl = document.getElementById('msg');
+  if(res.ok){
+    msgEl.textContent='登录成功，正在跳转…';
+    location.href='/';
+  }else{
+    const data = await res.json().catch(()=>({detail:'登录失败'}));
+    msgEl.textContent = data.detail || '登录失败';
+  }
+});
+</script>
+</body>
+</html>

@@ -1,0 +1,25 @@
+version: 1
+formatters:
+  default:
+    format: "%(asctime)s %(levelname)s [%(name)s] %(message)s"
+handlers:
+  console:
+    class: logging.StreamHandler
+    formatter: default
+    level: INFO
+loggers:
+  uvicorn:
+    handlers: [console]
+    level: INFO
+    propagate: False
+  uvicorn.error:
+    handlers: [console]
+    level: INFO
+    propagate: False
+  uvicorn.access:
+    handlers: [console]
+    level: INFO
+    propagate: False
+root:
+  handlers: [console]
+  level: INFO

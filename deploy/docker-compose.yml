@@ -1,0 +1,50 @@
+services:
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile
+    image: minipost-web:latest
+    container_name: minipost-web
+    environment:
+      - APP_HOST=${APP_HOST}
+      - APP_PORT=${APP_PORT}
+      - THEME_NAME=${THEME_NAME}
+      - DB=${DB}
+      - PG_HOST=${PG_HOST}
+      - PG_PORT=${PG_PORT}
+      - PG_DB=${PG_DB}
+      - PG_USER=${PG_USER}
+      - PG_PASSWORD=${PG_PASSWORD}
+      - USE_REAL_NAV=${USE_REAL_NAV}
+      - UFW_OPEN=${UFW_OPEN}
+      - JWT_SECRET=${JWT_SECRET}
+    ports:
+      - "${APP_PORT}:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -f http://localhost:8000/healthz || exit 1"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:16
+    container_name: minipost-postgres-1
+    environment:
+      - POSTGRES_DB=${PG_DB}
+      - POSTGRES_USER=${PG_USER}
+      - POSTGRES_PASSWORD=${PG_PASSWORD}
+    volumes:
+      - minipost_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${PG_USER} -d ${PG_DB} -h localhost"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    restart: unless-stopped
+
+volumes:
+  minipost_pg_data:

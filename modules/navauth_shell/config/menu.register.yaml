@@ -1,0 +1,25 @@
+# 仅注册壳层一级；本轮不挂任何业务二/三级
+- title: "订单"
+  path: "/orders"
+  order: 10
+  visible: true
+  level: 1
+  children: []
+- title: "商品"
+  path: "/products"
+  order: 20
+  visible: true
+  level: 1
+  children: []
+- title: "物流"
+  path: "/logistics"
+  order: 30
+  visible: true
+  level: 1
+  children: []
+- title: "设置"
+  path: "/settings"
+  order: 40
+  visible: true
+  level: 1
+  children: []

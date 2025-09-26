@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>minipost • shell</title>
+  <link rel="icon" href="/static/global/favicon.svg" />
+  <!-- 主题变量（仅 :root tokens） -->
+  <link rel="stylesheet" href="/static/themes/{{ THEME_NAME }}/root.css" />
+  <!-- 组件样式（禁止 :root） -->
+  <link rel="stylesheet" href="/modules_static/navauth_shell/frontend/static/nav_shell.css" />
+</head>
+<body data-use-real-nav="{{ 'true' if USE_REAL_NAV else 'false' }}">
+  <div class="shell">
+    <div class="header">
+      <a class="logo" href="/admin" aria-label="仪表盘"></a>
+      <div class="header-gap-left" aria-hidden="true"></div>
+      <div class="nav-rail" id="navRail" role="navigation" aria-label="主导航（一级）">
+        <div class="track" id="navTrack">
+          <div class="pill" id="pill" aria-hidden="true"></div>
+          <!-- 一级胶囊（初始占位，JS 会根据配置替换/重排） -->
+          <a class="link" data-path="/orders" href="/orders">订单</a>
+          <a class="link" data-path="/products" href="/products">商品</a>
+          <a class="link" data-path="/logistics" href="/logistics">物流</a>
+          <a class="link" data-path="/settings" href="/settings">设置</a>
+        </div>
+      </div>
+      <div class="header-gap-right" aria-hidden="true"></div>
+      <div class="avatar" aria-label="头像"></div>
+    </div>
+  </div>
+
+  <!-- 二级整行 -->
+  <div class="subrow" id="subRow" aria-label="次级导航整行">
+    <div class="subrow-inner">
+      <div class="subbar-offset" aria-hidden="true"></div>
+      <div class="subbar"><div class="sub-inner" id="subInner"></div></div>
+    </div>
+  </div>
+
+  <!-- 第三行：页签 + 卡片（仅容器与动效；不含业务内容） -->
+  <div class="tabrow" id="tabRow" aria-label="三级页签卡片行">
+    <div class="tabrow-inner">
+      <div class="tab-offset" aria-hidden="true"></div>
+      <div class="tab-wrap">
+        <div class="tabs" id="tabs"></div>
+        <div class="tabcard" id="tabCard">
+          <div class="tabpanel" id="tabPanel">请选择二级菜单。</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- 内容占位（仅为独立预览留白） -->
+  <div class="shell"><div class="content"><h2> </h2><p> </p></div></div>
+
+  <!-- 交互（像素/动效与原稿一致；禁止出现 :root；支持 USE_REAL_NAV=true/false） -->
+  <script src="/modules_static/navauth_shell/frontend/static/nav_shell.js"></script>
+</body>
+</html>
