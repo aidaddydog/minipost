@@ -1,5 +1,8 @@
-logistics:
-  - text: "物流渠道"
-    href: "/logistics/channels"
-    order: 1
-    icon: ""
+# modules/logistics_channel/config/menu.register.yaml
+# 该模块定位为 L2（物流渠道）；L3 放在 tabs（页签）中聚合。
+- level: 2
+  title: 物流渠道
+  path: /logistics/channel
+  order: 10
+  visible: true
+  children: []   # 必须为数组，即便暂时没有子菜单也给空数组
