@@ -1,4 +1,0 @@
-"/orders/label-upload":
-  - { key: "list", text: "面单列表", href: "/orders/label-upload/list",  order: 10 }
-  - { key: "logs", text: "上传记录", href: "/orders/label-upload/logs",  order: 20 }
-  - { key: "zips", text: "Zips 列表", href: "/orders/label-upload/zips", order: 30 }
