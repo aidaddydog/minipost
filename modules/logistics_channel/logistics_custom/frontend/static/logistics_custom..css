@@ -1,0 +1,217 @@
+/* logistics_custom.css
+ * 说明：
+ * - 严禁出现 :root；仅复用主题 Token（如 --filter-card-* / --btn-* / --input-* / --table-* / --footer-* 等）
+ * - 作用域限制在 #logistics-custom-app，避免全局污染
+ * - 视觉基元与 Label_upload 一致（toolbar / btn / input / select / table-wrap / modal / cselect / footer-bar）
+ * - 滚动条/阴影/圆角/字号均走 Token，像素级对齐壳层（变量名与壳层一致）
+ * - 不修改任何全局文件
+ */
+
+/* 作用域根容器 */
+#logistics-custom-app {
+  font-family: var(--filter-card-font-family);
+  font-size: var(--filter-card-font-size);
+  line-height: var(--filter-card-line-height);
+  color: var(--table-ink);
+}
+
+/* ===== 工具栏（筛选卡片） ===== */
+#logistics-custom-app .toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  background: var(--filter-card-bg);
+  border-radius: var(--filter-card-radius);
+  padding: var(--filter-card-py) var(--filter-card-px);
+  margin: var(--filter-card-mt) 0 var(--filter-card-mb);
+  gap: 12px;
+}
+
+#logistics-custom-app .toolbar-left,
+#logistics-custom-app .toolbar-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* 输入框（搜索） */
+#logistics-custom-app .input {
+  height: var(--input-h);
+  min-width: var(--input-minw);
+  display: inline-flex;
+  align-items: center;
+  padding: 0 var(--ctl-px);
+  background: var(--ctl-bg);
+  color: var(--ctl-ink);
+  border: var(--input-border-width) solid var(--ctl-border);
+  border-radius: var(--input-radius);
+}
+#logistics-custom-app .input input[type="text"]{
+  all: unset;
+  width: var(--input-search-w);
+  height: 100%;
+  color: var(--ctl-ink);
+}
+#logistics-custom-app .input input::placeholder{ color: var(--ctl-placeholder); }
+
+/* 按钮（黑色主按钮 + 次级按钮） */
+#logistics-custom-app .btn{
+  height: var(--btn-h);
+  min-width: var(--btn-minw);
+  border-radius: var(--btn-radius);
+  border: var(--btn-border-width) solid var(--ctl-border);
+  background: var(--ctl-bg);
+  color: var(--ctl-ink);
+  padding: 0 var(--btn-px);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--btn-gap);
+  cursor: pointer;
+  user-select: none;
+  text-decoration: none;
+  font-size: var(--btn-font-size);
+}
+#logistics-custom-app .btn--black{
+  background: var(--btn-black-bg);
+  color: var(--btn-black-ink);
+  border-color: var(--btn-black-bg);
+}
+#logistics-custom-app .btn:disabled { opacity: .6; cursor: not-allowed; }
+
+/* 自定义下拉（cselect） */
+#logistics-custom-app .cselect {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  height: var(--select-h);
+  min-width: var(--select-minw);
+  border: var(--select-border-width) solid var(--ctl-border);
+  border-radius: var(--select-radius);
+  background: var(--ctl-bg);
+  padding: 0 var(--ctl-px);
+  cursor: pointer;
+}
+#logistics-custom-app .cselect__text { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+#logistics-custom-app .cselect__menu{
+  position: absolute; left: 0; top: calc(100% + 6px);
+  min-width: var(--menu-minw); max-height: var(--menu-maxh); overflow: auto;
+  background: #fff;
+  border-radius: var(--menu-radius);
+  border: var(--menu-border-width) solid var(--menu-border-color);
+  box-shadow: var(--menu-shadow);
+  padding: 6px 0;
+  z-index: 20;
+  display: none;
+}
+#logistics-custom-app .cselect.open .cselect__menu{ display: block; }
+#logistics-custom-app .cselect__item{
+  height: var(--menu-item-h); display: flex; align-items: center;
+  padding: 0 var(--menu-item-px); font-size: var(--menu-font-size);
+  color: var(--table-ink); cursor: pointer;
+}
+#logistics-custom-app .cselect__item:hover{ background: var(--table-row-hover); }
+
+/* ===== 表格区域 ===== */
+#logistics-custom-app .table-wrap{
+  background: var(--table-wrap-bg);
+  border-radius: var(--table-wrap-radius);
+  margin-top: var(--table-wrap-mt);
+  margin-bottom: var(--table-wrap-mb);
+  overflow: auto;
+  --sbw: var(--scrollbar-w);
+  scrollbar-width: thin;
+  scrollbar-color: var(--scrollbar-thumb) var(--scrollbar-track);
+}
+#logistics-custom-app .table{
+  width: 100%;
+  border-collapse: collapse;
+  font-family: var(--table-font-family);
+  font-size: var(--table-font-size);
+  color: var(--table-ink);
+  background: var(--table-row-bg);
+}
+#logistics-custom-app .table thead th{
+  position: sticky; top: var(--table-head-sticky-top);
+  background: var(--table-head-bg);
+  color: var(--table-head-ink);
+  text-align: left; font-weight: 500;
+  padding: 10px 12px;
+  box-shadow: var(--table-head-shadow);
+  white-space: nowrap;
+}
+#logistics-custom-app .table tbody td{
+  border-top: 1px solid var(--table-line);
+  padding: 10px 12px;
+  vertical-align: top;
+}
+#logistics-custom-app .table tbody tr:hover{ background: var(--table-row-hover); }
+
+/* 展开行（子表） */
+#logistics-custom-app .row-toggle{
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 18px; height: 18px; border-radius: 4px; border: 1px solid var(--table-line);
+  user-select: none; cursor: pointer;
+}
+#logistics-custom-app .row-toggle[aria-expanded="true"]{ transform: rotate(90deg); }
+
+#logistics-custom-app .subtable{
+  width: 100%; border-collapse: collapse; margin-top: 6px;
+  font-size: var(--table-font-size);
+}
+#logistics-custom-app .subtable th,#logistics-custom-app .subtable td{
+  padding: 6px 8px; border-top: 1px dashed var(--table-line);
+  white-space: nowrap;
+}
+
+/* ===== 页脚（分页/批量操作） ===== */
+#logistics-custom-app .footer-bar{
+  position: sticky; bottom: var(--footer-bottom);
+  display: flex; align-items: center; justify-content: space-between;
+  background: var(--footer-bg); color: var(--footer-ink);
+  border-radius: var(--footer-radius);
+  box-shadow: var(--footer-shadow);
+  padding: var(--footer-py) var(--footer-px);
+  gap: var(--footer-gap);
+  font-size: var(--footer-font-size);
+}
+#logistics-custom-app .pager{ display: inline-flex; align-items: center; gap: 8px; }
+#logistics-custom-app .pager .btn{ height: var(--footer-ctl-h); border-width: var(--footer-ctl-border-width); }
+
+/* ===== 弹窗（新增/编辑） ===== */
+#logistics-custom-app .modal{
+  position: fixed; inset: 0; background: rgba(15,23,42,.35);
+  display: none; align-items: center; justify-content: center;
+  z-index: 1000;
+}
+#logistics-custom-app .modal.open{ display: flex; }
+#logistics-custom-app .modal__dialog{
+  background: #fff; border-radius: 16px; width: 760px; max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 40px); overflow: auto; padding: 16px 16px 12px;
+}
+#logistics-custom-app .modal__title{ font-weight: 600; margin: 0 0 10px; }
+#logistics-custom-app .form-row{ display:flex; gap:10px; align-items:center; margin:8px 0; }
+#logistics-custom-app .form-row label{ min-width: 100px; color: var(--table-head-ink); }
+#logistics-custom-app .channels-head{ display:flex; align-items:center; justify-content:space-between; margin-top: 6px; }
+#logistics-custom-app .channels{ display:flex; flex-direction:column; gap:6px; }
+#logistics-custom-app .channel-line{ display:grid; grid-template-columns: 1.2fr 1fr 1fr 1fr auto; gap:6px; align-items:center; }
+#logistics-custom-app .channel-op{ display:flex; gap:6px; }
+#logistics-custom-app .helper{ color:#6b7280; font-size: .9em; }
+
+#logistics-custom-app .sr-only{
+  position: absolute; width: 1px; height: 1px; padding:0; margin:-1px; overflow:hidden; clip: rect(0,0,0,0); white-space:nowrap; border:0;
+}
+
+/* ===== 轻量提示/空态 ===== */
+#logistics-custom-app .empty{
+  text-align:center; color: var(--table-head-ink); padding: 24px 12px;
+}
+
+/* ===== 滚动条（与壳层一致） ===== */
+#logistics-custom-app .table-wrap::-webkit-scrollbar{ width: var(--scrollbar-w); height: var(--scrollbar-h); }
+#logistics-custom-app .table-wrap::-webkit-scrollbar-thumb{ background: var(--scrollbar-thumb); border-radius: var(--scrollbar-radius); }
+#logistics-custom-app .table-wrap::-webkit-scrollbar-thumb:hover{ background: var(--scrollbar-thumb-hover); }
+
+/* 降噪动画：用户偏好减少动效时禁用过渡 */
+@media (prefers-reduced-motion: reduce){
+  #logistics-custom-app * { transition: none !important; animation: none !important; }
+}
