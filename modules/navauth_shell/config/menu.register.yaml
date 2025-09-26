@@ -1,8 +1,7 @@
-# 正确 Schema：对象（L1 → L2 列表）。这里只注册 L1 壳，不挂任何 L2。
 menu:
-  - level: 1
-    title: 导航
-    path: /nav
-    order: 1
-    visible: false   # 隐藏，不出现在前端，但文件存在
-    children: []
+    - level: 1
+      title: 导航
+      path: /nav
+      order: 1
+      visible: false
+      children: []
