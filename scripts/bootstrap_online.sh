@@ -108,7 +108,7 @@ prepare_env(){
   put(){ local k="$1"; local v="$2"; grep -q "^${k}=" .deploy.env || echo "${k}=${v}" >> .deploy.env; }
   put APP_HOST 0.0.0.0; put APP_PORT 8000; put THEME_NAME default
   put DB postgres; put PG_HOST postgres; put PG_PORT 5432; put PG_DB minipost; put PG_USER minipost
-  put USE_REAL_NAV false; put UFW_OPEN true; put ENVIRONMENT production
+  put USE_REAL_NAV true; put UFW_OPEN true; put ENVIRONMENT production
   grep -q '^PG_PASSWORD=' .deploy.env || echo "PG_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-32)" >> .deploy.env
   grep -q '^JWT_SECRET=' .deploy.env  || echo "JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-48)" >> .deploy.env
 }
