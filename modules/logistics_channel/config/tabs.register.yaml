@@ -1,7 +1,0 @@
-# modules/logistics_channel/config/tabs.register.yaml
-# L3 在“页签”层聚合：面单上传（列表） / 上传记录
-- key: logistics_custom
-  text: 面单上传
-  href: /logistics/channel/custom
-
-
