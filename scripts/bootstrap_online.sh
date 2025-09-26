@@ -36,7 +36,7 @@ check_os(){ . /etc/os-release || true; [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:
 ensure_pkgs(){ ok "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"; apt-get update -y >/dev/null; apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true; }
 check_net_time(){
   ok "系统/网络/时间/端口检查"
-  if command -v timedatectl >/dev/null 2>&1; then timedatectl set-ntp true >/dev/null 2>&1 || true; else systemctl enable --now chrony >/dev/null 2>&1 || true; fi
+  if command -v timedatectl >/dev/null 2>&1; then timedatectl set-ntp true >/devnull 2>&1 || true; else systemctl enable --now chrony >/dev/null 2>&1 || true; fi
   local p="${APP_PORT:-8000}"; if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then die "端口 ${p} 已被占用，请修改 .deploy.env 的 APP_PORT 或释放端口后重试"; fi
 }
 ensure_docker(){
@@ -93,6 +93,19 @@ prepare_env(){
   grep -q '^JWT_SECRET=' .deploy.env  || echo "JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-48)" >> .deploy.env
 }
 
+# ===== 新增：导出 .deploy.env 到当前 shell，用于 Compose 变量替换（PG_* / APP_*）=====
+load_deploy_env(){
+  if [[ -f "${APP_DIR}/.deploy.env" ]]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "${APP_DIR}/.deploy.env"
+    set +a
+    ok "已加载 .deploy.env 环境变量（PG_* / APP_*）"
+  else
+    warn ".deploy.env 未找到（prepare_env 将在后续创建）"
+  fi
+}
+
 # ===== 启动前校验：模块 YAML Schema（失败阻断启动）=====
 validate_modules(){
   ok "校验模块 YAML（module.meta / menu.register / tabs.register / permissions.register）"
@@ -128,10 +141,9 @@ apply_mode(){
   esac
 }
 
-# ★★★ 新增：在迁移前强制构建 web 镜像（把最新代码和 alembic.ini 打进镜像） ★★★
+# ===== 构建 Web 镜像（把最新代码和 alembic.ini 打进镜像） =====
 build_web(){
   ok "构建 Web 镜像（包含最新代码与 alembic.ini）"
-  # --pull 确保基础镜像拉新；不加 --no-cache，保持构建速度；如需彻底重建，可改为 MODE=1 时加 --no-cache
   docker compose -f "${COMPOSE_FILE}" build --pull web
 }
 
@@ -211,6 +223,5 @@ report(){
 
 # ===== 主流程（命令之间必须以分号或换行分隔）=====
 need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
-choose_mode; prepare_repo; prepare_env; validate_modules; tune_perf; apply_mode;
-build_web;           # ★ 新增：迁移前构建 web 镜像，确保包含最新的 alembic.ini 与代码
-start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
+choose_mode; prepare_repo; prepare_env; load_deploy_env; validate_modules; tune_perf; apply_mode;
+build_web; start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
