@@ -1,5 +1,2 @@
 # 正确 Schema：对象（L1 → L2 列表）。这里只注册 L1 壳，不挂任何 L2。
-orders: []
-products: []
-logistics: []
-settings: []
+[]
