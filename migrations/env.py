@@ -1,7 +1,9 @@
 from logging.config import fileConfig
-import sys  # 确保 alembic.ini 里的 handlers 使用 sys.stderr 可用
+import sys  # 确保 alembic.ini handlers 的 sys.stderr 可用
 from sqlalchemy import engine_from_config, pool
 from alembic import context
+
+# 统一走应用侧 DSN（强制 PostgreSQL，避免在 ini 里写死连接串）
 from app.db import _dsn
 from modules.core.backend.models import rbac as rbac_models
 
