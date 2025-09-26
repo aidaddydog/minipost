@@ -1,7 +1,8 @@
 # -*- coding: utf-8 -*-
 from fastapi import Depends, HTTPException, status, Request
 from sqlalchemy.orm import Session
-from typing import Optional, List
+from typing import List
+
 from app.db import get_db
 from app.security import decode_access_token
 from modules.core.backend.models.rbac import User, Role, Permission, UserRole, RolePermission
@@ -19,10 +20,16 @@ def current_user(request: Request, db: Session = Depends(get_db)) -> User:
 def require_permissions(perms: List[str]):
     def _inner(user: User = Depends(current_user), db: Session = Depends(get_db)) -> User:
         # 汇总用户所有权限
-        q = db.query(Permission.key).join(RolePermission, RolePermission.permission_id == Permission.id) \             .join(UserRole, UserRole.role_id == RolePermission.role_id) \             .filter(UserRole.user_id == user.id)
-        user_perm_keys = set([r[0] for r in q.all()])
+        q = (
+            db.query(Permission.key)
+            .join(RolePermission, RolePermission.permission_id == Permission.id)
+            .join(UserRole, UserRole.role_id == RolePermission.role_id)
+            .filter(UserRole.user_id == user.id)
+        )
+        user_perm_keys = {r[0] for r in q.all()}
         missing = [p for p in perms if p not in user_perm_keys]
         if missing:
             raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"缺少权限: {missing}")
         return user
+
     return _inner
