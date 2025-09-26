@@ -62,7 +62,7 @@ ensure_docker(){
 choose_mode(){
   echo -e "${c_cyn}请选择部署模式（仅输入数字）：${c_rst}"
   echo -e "  ${c_grn}1) 全新安装${c_rst}：备份→清理容器/卷/镜像/缓存→重装"
-  echo -e "  ${c_grn}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新结构与镜像"
+  echo -e "  ${c_grn}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新镜像与结构"
   echo -e "  ${c_grn}3) 升级安装${c_rst}：仅同步差异；若检测到迁移→自动幂等迁移"
   read -rp "输入 [1/2/3]（默认 2）: " MODE || true
   MODE="${MODE:-2}"
@@ -105,6 +105,17 @@ load_deploy_env(){
   else
     warn ".deploy.env 未找到（prepare_env 将在后续创建）"
   fi
+}
+
+# ===== ★ 新增：把 PG_* 写入 deploy/postgres.env，供 postgres service 使用 =====
+write_postgres_env(){
+  ok "写入 Postgres 环境文件（deploy/postgres.env）"
+  mkdir -p "${APP_DIR}/deploy"
+  cat > "${APP_DIR}/deploy/postgres.env" <<EOF
+POSTGRES_USER=${PG_USER}
+POSTGRES_PASSWORD=${PG_PASSWORD}
+POSTGRES_DB=${PG_DB}
+EOF
 }
 
 # ===== 启动前校验：模块 YAML Schema（失败阻断启动）=====
@@ -263,5 +274,5 @@ report(){
 
 # ===== 主流程（命令之间必须以分号或换行分隔）=====
 need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
-choose_mode; prepare_repo; prepare_env; load_deploy_env; validate_modules; tune_perf; apply_mode;
+choose_mode; prepare_repo; prepare_env; load_deploy_env; write_postgres_env; validate_modules; tune_perf; apply_mode;
 build_web; start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
