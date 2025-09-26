@@ -4,14 +4,13 @@ services:
   postgres:
     image: postgres:16
     container_name: minipost_postgres
-    environment:
-      POSTGRES_USER: ${PG_USER:-minipost}
-      POSTGRES_PASSWORD: ${PG_PASSWORD:-minipost}
-      POSTGRES_DB: ${PG_DB:-minipost}
+    env_file:
+      - ./postgres.env
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PG_USER:-minipost} -d ${PG_DB:-minipost}"]
+      # 在容器内展开 $POSTGRES_USER/$POSTGRES_DB；Compose 层用 $$ 转义为单个 $
+      test: ["CMD-SHELL", "pg_isready -U $$POSTGRES_USER -d $$POSTGRES_DB -h localhost"]
       interval: 5s
       timeout: 3s
       retries: 30
@@ -47,7 +46,7 @@ services:
     networks: [minipost_net]
 
 volumes:
-  pg_data:
+  pg_data: {}
 
 networks:
   minipost_net:
