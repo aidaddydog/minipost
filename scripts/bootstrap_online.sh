@@ -153,29 +153,76 @@ __apt_release_and_repair() {
   dpkg --configure -a >/dev/null 2>&1 || true
 }
 
-# --- 用这个函数替换原 ensure_pkgs（仅此函数变更） ---
+# --- 新增：判断 APT 是否忙 ---
+__apt_is_busy() {
+  pgrep -x apt >/dev/null 2>&1 || \
+  pgrep -x apt-get >/dev/null 2>&1 || \
+  pgrep -x dpkg >/dev/null 2>&1 || \
+  pgrep -x unattended-upgrade >/dev/null 2>&1
+}
+
+# --- 新增：等待并温和修复 APT 锁/半配置 ---
+__apt_wait_and_repair() {
+  # 用法：__apt_wait_and_repair [等待秒数]，默认 180
+  local wait_s="${1:-180}" slept=0
+  while __apt_is_busy; do
+    (( slept >= wait_s )) && break
+    sleep 1; ((slept++))
+  done
+
+  # 超时仍忙：温和止血 + 修复
+  if __apt_is_busy; then
+    # 停止自动升级相关服务/定时器（避免反复抢锁）
+    systemctl stop apt-daily.service apt-daily.timer \
+                   apt-daily-upgrade.service apt-daily-upgrade.timer \
+                   unattended-upgrades.service >/dev/null 2>&1 || true
+    # 优雅结束残留前台/后台进程
+    pkill -TERM -x unattended-upgrade apt apt-get dpkg >/dev/null 2>&1 || true
+    sleep 2
+    __apt_is_busy && pkill -KILL -x unattended-upgrade apt apt-get dpkg >/dev/null 2>&1 || true
+    # 修复半配置（不会交互）
+    DEBIAN_FRONTEND=noninteractive dpkg --configure -a >/dev/null 2>&1 || true
+    # 清理可能残留的锁文件
+    rm -f /var/lib/apt/lists/lock \
+          /var/lib/dpkg/lock-frontend \
+          /var/lib/dpkg/lock \
+          /var/cache/apt/archives/lock 2>/dev/null || true
+  fi
+}
+
+# --- 替换原 ensure_pkgs（仅此函数替换） ---
 ensure_pkgs(){
   export DEBIAN_FRONTEND=noninteractive
-  # 先等待（最多 120s）后台更新释放锁
-  __apt_quiet_wait 120 || true
-  # 如果还没释放，温和释放一次并修复
-  if \
-    fuser /var/lib/dpkg/lock >/dev/null 2>&1 || \
-    fuser /var/lib/dpkg/lock-frontend >/dev/null 2>&1 || \
-    pgrep -x unattended-upgrade >/dev/null 2>&1; then
-    __apt_release_and_repair
-  fi
 
-  # 加一些健壮参数与超时，避免再卡住
-  local APT_OPTS=(-y -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 -o Acquire::http::Timeout=20)
-  timeout 300 apt-get update "${APT_OPTS[@]}" >/dev/null 2>&1 || true
+  # 先等待后台升级释放锁，必要时温和修复
+  __apt_wait_and_repair 180
 
-  # 再次短等锁（60s），然后安装基础包（非交互、无推荐），整体给 10 分钟超时
-  __apt_quiet_wait 60 || true
-  timeout 600 apt-get install -y --no-install-recommends \
-      ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml \
-      >/dev/null 2>&1 || true
+  # 通用 APT 选项（降低交互、加重试与超时）
+  local APT_OPTS=(-y -o Dpkg::Use-Pty=0 -o Acquire::Retries=3 \
+                     -o Acquire::http::Timeout=20 -o Acquire::https::Timeout=20)
+
+  # 若存在半配置/缺依赖，先自愈一次（不报错退出）
+  timeout 120 apt-get -o Dpkg::Options::=--force-confold -f install >/dev/null 2>&1 || true
+
+  # update：最多重试 3 次（其间若仍被占用→等待并修复）
+  for i in 1 2 3; do
+    if timeout 180 apt-get update "${APT_OPTS[@]}" >/dev/null 2>&1; then
+      break
+    fi
+    __apt_wait_and_repair 60
+  done
+
+  # install：最多重试 2 次
+  local pkgs=(ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml)
+  for i in 1 2; do
+    if timeout 600 apt-get install --no-install-recommends "${APT_OPTS[@]}" "${pkgs[@]}" >/dev/null 2>&1; then
+      break
+    fi
+    __apt_wait_and_repair 60
+    timeout 60 apt-get -o Dpkg::Options::=--force-confold -f install >/dev/null 2>&1 || true
+  done
 }
+
 
 
 check_net_time(){
