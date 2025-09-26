@@ -15,7 +15,7 @@ REPO_URL="${REPO_URL:-https://github.com/aidaddydog/minipost.git}"
 BRANCH="${BRANCH:-main}"
 APP_DIR="${APP_DIR:-/opt/minipost}"
 COMPOSE_FILE="${APP_DIR}/deploy/docker-compose.yml"
-: "${APP_PORT:=8000}"   # 供 Preflight 端口校验使用（未设置则用 8000）
+: "${APP_PORT:=8000}"   # 预检阶段暂用默认 8000，仅提示不终止
 
 LOG_CMD_SYSTEMD="journalctl -u minipost.service -e -n 200"
 LOG_CMD_COMPOSE="docker compose -f ${COMPOSE_FILE} logs web --tail=200"
@@ -34,10 +34,16 @@ box5(){ # box5 "标题" "$content"
 need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请先 sudo -i 或 su - 切换到 root 后重试（EUID 必须 0）"; }
 check_os(){ . /etc/os-release || true; [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:-}" = "24.04" ]] || warn "建议 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}（继续尝试）"; }
 ensure_pkgs(){ ok "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"; apt-get update -y >/dev/null; apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true; }
+
 check_net_time(){
   ok "系统/网络/时间/端口检查"
+  # 时间同步
   if command -v timedatectl >/dev/null 2>&1; then timedatectl set-ntp true >/dev/null 2>&1 || true; else systemctl enable --now chrony >/dev/null 2>&1 || true; fi
-  local p="${APP_PORT:-8000}"; if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then die "端口 ${p} 已被占用，请修改 .deploy.env 的 APP_PORT 或释放端口后重试"; fi
+  # 端口占用（预检阶段：仅提示，不终止；严格检查在 .deploy.env 加载后执行）
+  local p="${APP_PORT:-8000}"
+  if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then
+    warn "预检提示：检测到端口 ${p} 被占用（此时尚未加载 .deploy.env），稍后将按实际 APP_PORT 再次严格校验"
+  fi
 }
 
 ensure_docker(){
@@ -62,7 +68,7 @@ ensure_docker(){
 choose_mode(){
   echo -e "${c_cyn}请选择部署模式（仅输入数字）：${c_rst}"
   echo -e "  ${c_grn}1) 全新安装${c_rst}：备份→清理容器/卷/镜像/缓存→重装"
-  echo -e "  ${c_grn}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新镜像与结构"
+  echo -e "  ${c_grn}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新结构与镜像"
   echo -e "  ${c_grn}3) 升级安装${c_rst}：仅同步差异；若检测到迁移→自动幂等迁移"
   read -rp "输入 [1/2/3]（默认 2）: " MODE || true
   MODE="${MODE:-2}"
@@ -107,7 +113,7 @@ load_deploy_env(){
   fi
 }
 
-# ===== ★ 新增：把 PG_* 写入 deploy/postgres.env，供 postgres service 使用 =====
+# ===== ★ 把 PG_* 写入 deploy/postgres.env，供 postgres service 使用 =====
 write_postgres_env(){
   ok "写入 Postgres 环境文件（deploy/postgres.env）"
   mkdir -p "${APP_DIR}/deploy"
@@ -116,6 +122,18 @@ POSTGRES_USER=${PG_USER}
 POSTGRES_PASSWORD=${PG_PASSWORD}
 POSTGRES_DB=${PG_DB}
 EOF
+}
+
+# ===== ★ 新增：加载 .deploy.env 后对实际 APP_PORT 进行严格占用检查 =====
+check_port_after_env(){
+  local p=""
+  if [[ -f "${APP_DIR}/.deploy.env" ]]; then
+    p="$(grep -E '^APP_PORT=' "${APP_DIR}/.deploy.env" | cut -d= -f2- | tr -d '\r')"
+  fi
+  p="${p:-${APP_PORT:-8000}}"
+  if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then
+    die "端口 ${p} 已被占用，请修改 ${APP_DIR}/.deploy.env 的 APP_PORT 或释放端口后重试"
+  fi
 }
 
 # ===== 启动前校验：模块 YAML Schema（失败阻断启动）=====
@@ -274,5 +292,5 @@ report(){
 
 # ===== 主流程（命令之间必须以分号或换行分隔）=====
 need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
-choose_mode; prepare_repo; prepare_env; load_deploy_env; write_postgres_env; validate_modules; tune_perf; apply_mode;
+choose_mode; prepare_repo; prepare_env; load_deploy_env; write_postgres_env; check_port_after_env; validate_modules; tune_perf; apply_mode;
 build_web; start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
