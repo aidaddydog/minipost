@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>自定义物流</title>
+  <!-- 优先加载主题 tokens（仅 :root） -->
+  <link rel="preload" as="style" href="/modules/_themes/default/root.css" onload="this.rel='stylesheet'">
+  <noscript><link rel="stylesheet" href="/modules/_themes/default/root.css"></noscript>
+  <!-- 组件样式（不包含 :root） -->
+  <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_channel.css" />
+</head>
+<body>
+  <div class="page">
+    <!-- 工具栏：左搜索 + 右新增 -->
+    <div class="toolbar" role="region" aria-label="筛选工具栏">
+      <div class="tool-left">
+        <div class="input-group">
+          <input id="kw" class="input input--search" type="text" placeholder="搜索 物流名称/渠道名称" aria-label="搜索关键字"/>
+          <button id="btnSearch" class="btn btn--black">搜索</button>
+          <button id="btnReset" class="btn">重置</button>
+        </div>
+      </div>
+      <div class="tool-right">
+        <button id="btnNew" class="btn btn--black">新增自定义物流</button>
+      </div>
+    </div>
+
+    <!-- 表格 -->
+    <div id="tableWrap" class="table-wrap">
+      <table class="table" aria-label="自定义物流列表">
+        <thead>
+          <tr>
+            <th class="col-exp"></th>
+            <th>物流名称</th>
+            <th>创建时间</th>
+            <th>操作</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+      </table>
+    </div>
+
+    <!-- 页脚（分页） -->
+    <div class="footer-bar" role="navigation">
+      <div class="pager">
+        <button id="prev" class="btn">&lt;</button>
+        <span id="pageInfo"></span>
+        <button id="next" class="btn">&gt;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 弹窗：新增/编辑 -->
+  <div id="modal" class="modal" aria-hidden="true">
+    <div class="modal__mask" data-close></div>
+    <div class="modal__panel" role="dialog" aria-modal="true" aria-labelledby="dlgTitle">
+      <div class="modal__hd">
+        <h3 id="dlgTitle">新增自定义物流</h3>
+        <button class="modal__close" data-close aria-label="关闭">×</button>
+      </div>
+      <div class="modal__bd">
+        <div class="form-row">
+          <label>物流名称</label>
+          <input id="f_provider_name" class="input" type="text" placeholder="请输入物流名称" />
+        </div>
+
+        <div class="form-row">
+          <label>发货地址</label>
+          <div class="addr">
+            <!-- 这里可对接地址管理下拉；当前保留手填 -->
+            <input id="f_ship_from_country" class="input" placeholder="国家(ISO2)">
+            <input id="f_ship_from_state" class="input" placeholder="州/省">
+            <input id="f_ship_from_city" class="input" placeholder="城市">
+            <input id="f_ship_from_street1" class="input" placeholder="街道1">
+            <input id="f_ship_from_postcode" class="input" placeholder="邮编">
+            <input id="f_ship_from_contact" class="input" placeholder="联系人/公司(可空)">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <label>物流渠道</label>
+          <div id="channelList" class="channels">
+            <!-- 动态行容器 -->
+          </div>
+          <div class="form-row__ops">
+            <button id="btnAddRow" class="btn">+ 添加渠道</button>
+          </div>
+        </div>
+      </div>
+      <div class="modal__ft">
+        <button id="btnSubmit" class="btn btn--black">提 交</button>
+        <button class="btn" data-close>取 消</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/modules/logistics_channel/logistics_custom/frontend/static/logistics_channel.js"></script>
+</body>
+</html>
