@@ -1,12 +1,13 @@
 from logging.config import fileConfig
+import sys  # 确保 alembic.ini 里的 handlers 使用 sys.stderr 可用
 from sqlalchemy import engine_from_config, pool
 from alembic import context
 from app.db import _dsn
 from modules.core.backend.models import rbac as rbac_models
 
-# 读取 alembic.ini 的配置（本项目直接传递 URL）
 config = context.config
-fileConfig(config.config_file_name)
+if config.config_file_name:
+    fileConfig(config.config_file_name)
 
 target_metadata = rbac_models.Base.metadata
 
