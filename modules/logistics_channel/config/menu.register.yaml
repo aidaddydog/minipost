@@ -1,0 +1,5 @@
+logistics:
+  - text: "物流渠道"
+    href: "/logistics/channel"
+    order: 1
+    icon: ""
