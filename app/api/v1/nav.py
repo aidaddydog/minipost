@@ -10,5 +10,4 @@ def get_nav():
 
 @router.post("/nav/reload")
 def reload_nav(force: bool = Query(default=True)):
-    res = refresh_nav_cache()
-    return res
+    return refresh_nav_cache()
