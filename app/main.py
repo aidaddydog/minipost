@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI, Request, Depends, Response, status
+from fastapi import FastAPI, Request, Depends
 from fastapi.responses import HTMLResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
@@ -14,12 +14,13 @@ from modules.core.backend.routers.rbac_admin import router as rbac_router
 
 app = FastAPI(title="minipost", version="0.1.0")
 
-# 静态资源：全局 + 模块主题 + 模块前端
+# 静态资源挂载
 app.mount("/static", StaticFiles(directory="static"), name="static")
-app.mount("/modules_static", StaticFiles(directory="modules"), name="modules_static")  # 直接暴露模块静态（只读）
+app.mount("/modules_static", StaticFiles(directory="modules"), name="modules_static")
 
-# 模板根在仓库根；模块内模板使用绝对/相对路径
+# 模板引擎（全局）
 templates = Jinja2Templates(directory=".")
+app.state.templates = templates  # ★ 修复点：为 /login 路由提供 request.app.state.templates
 
 # 路由注册
 app.include_router(health_router)
