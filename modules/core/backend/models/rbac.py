@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy import String, Boolean, Integer, ForeignKey, UniqueConstraint
+
 from app.common.models_base import Base, TimeMixin
 
 class User(Base, TimeMixin):
@@ -33,4 +34,5 @@ class RolePermission(Base):
     __tablename__ = "role_permission"
     role_id: Mapped[int] = mapped_column(ForeignKey("role.id"), primary_key=True)
     permission_id: Mapped[int] = mapped_column(ForeignKey("permission.id"), primary_key=True)
+
     __table_args__ = (UniqueConstraint("role_id", "permission_id", name="uq_role_perm"),)
