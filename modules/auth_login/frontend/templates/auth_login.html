@@ -1,43 +1,84 @@
-<!doctype html>
+<!DOCTYPE html>
 <html lang="zh-CN">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>登录 - minipost</title>
-  <link rel="icon" href="/static/global/favicon.svg" />
-  <!-- 主题变量：只在 root.css -->
-  <link rel="stylesheet" href="/static/themes/default/root.css" />
-  <link rel="stylesheet" href="/modules_static/auth_login/frontend/static/auth_login.css" />
+
+  <!-- 主题 tokens（只读，引入已有的 default 主题） -->
+  <link rel="stylesheet" href="{{ url_for('modules_static', path='_themes/default/root.css') }}" />
+  <!-- 登录页面样式（与壳层解耦；不包含 :root） -->
+  <link rel="stylesheet" href="{{ url_for('modules_static', path='auth_login/frontend/static/auth_login.css') }}" />
 </head>
-<body>
-  <div class="login-wrap">
-    <div class="login-card">
-      <div class="logo"></div>
-      <h1 class="title">登录 minipost</h1>
-      <form id="loginForm" class="form" method="post" action="/api/login">
-        <label class="label">用户名</label>
-        <input class="input" type="text" name="username" required />
-        <label class="label">密码</label>
-        <input class="input" type="password" name="password" required />
-        <button class="btn btn--primary" type="submit">登录</button>
-      </form>
-      <div class="msg" id="msg"></div>
+<body class="auth-shell">
+  <div class="auth-card">
+    <div class="brand">
+      <div class="logo" aria-hidden="true"></div>
+      <h1 class="title">登录</h1>
     </div>
+
+    <!-- 登录表单（用户名/密码） -->
+    <form id="loginForm" autocomplete="on">
+      <label class="field">
+        <span>用户名</span>
+        <input id="username" name="username" type="text" required autofocus
+               autocomplete="username" placeholder="输入用户名" />
+      </label>
+
+      <label class="field">
+        <span>密码</span>
+        <input id="password" name="password" type="password" required
+               autocomplete="current-password" placeholder="输入密码" />
+      </label>
+
+      <button type="submit" class="btn-primary">登 录</button>
+      <p id="msg" class="msg" aria-live="polite"></p>
+    </form>
   </div>
-<script>
-document.getElementById('loginForm').addEventListener('submit', async (e) => {
-  e.preventDefault();
-  const fd = new FormData(e.target);
-  const res = await fetch('/api/login', { method: 'POST', body: fd });
-  const msgEl = document.getElementById('msg');
-  if(res.ok){
-    msgEl.textContent='登录成功，正在跳转…';
-    location.href='/';
-  }else{
-    const data = await res.json().catch(()=>({detail:'登录失败'}));
-    msgEl.textContent = data.detail || '登录失败';
-  }
-});
-</script>
+
+  <script>
+  (function () {
+    const elForm = document.getElementById('loginForm');
+    const elMsg  = document.getElementById('msg');
+
+    elForm.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      elMsg.textContent = '正在登录…';
+
+      const u = document.getElementById('username').value.trim();
+      const p = document.getElementById('password').value;
+
+      if (!u || !p) {
+        elMsg.textContent = '请输入用户名与密码';
+        elMsg.classList.add('error');
+        return;
+      }
+
+      try {
+        /*
+         * 说明：后端 do_login 接口参数未声明 Form/JSON 体（未使用 Form(...) 或 Body），
+         *       因此需通过“查询参数”传递；POST 方法即可触发后端逻辑并写入 Set-Cookie。
+         */
+        const url = '/api/login?username=' + encodeURIComponent(u) + '&password=' + encodeURIComponent(p);
+        const res = await fetch(url, { method: 'POST', credentials: 'same-origin' });
+
+        if (!res.ok) {
+          const txt = await res.text();
+          throw new Error('登录失败（' + res.status + '）：' + txt);
+        }
+        const data = await res.json();
+        if (data && data.ok) {
+          // Cookie 已由后端设置（HTTPOnly, samesite=lax），跳转首页
+          location.href = '/';
+        } else {
+          throw new Error('登录失败，请检查账号密码');
+        }
+      } catch (err) {
+        elMsg.textContent = (err && err.message) ? err.message : String(err);
+        elMsg.classList.add('error');
+      }
+    });
+  })();
+  </script>
 </body>
 </html>
