@@ -1,7 +1,1 @@
-menu:
-    - level: 1
-      title: 导航
-      path: /nav
-      order: 1
-      visible: false
-      children: []
+menu: []
