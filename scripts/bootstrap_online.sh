@@ -32,31 +32,13 @@ box5(){ # box5 "标题" "$content"
 
 # ===== 0) Preflight 自检 =====
 need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请先 sudo -i 或 su - 切换到 root 后重试（EUID 必须 0）"; }
-check_os(){
-  . /etc/os-release || true
-  [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:-}" = "24.04" ]] || warn "建议 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}（继续尝试）"
-}
-ensure_pkgs(){
-  ok "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"
-  apt-get update -y >/dev/null
-  apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true
-}
-
+check_os(){ . /etc/os-release || true; [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:-}" = "24.04" ]] || warn "建议 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}（继续尝试）"; }
+ensure_pkgs(){ ok "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"; apt-get update -y >/dev/null; apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true; }
 check_net_time(){
   ok "系统/网络/时间/端口检查"
-  # 时间同步（timesyncd 或 chrony）
-  if command -v timedatectl >/dev/null 2>&1; then
-    timedatectl set-ntp true >/dev/null 2>&1 || true
-  else
-    systemctl enable --now chrony >/dev/null 2>&1 || true
-  fi
-  # 端口占用
-  local p="${APP_PORT:-8000}"
-  if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then
-    die "端口 ${p} 已被占用，请修改 .deploy.env 的 APP_PORT 或释放端口后重试"
-  fi
+  if command -v timedatectl >/dev/null 2>&1; then timedatectl set-ntp true >/dev/null 2>&1 || true; else systemctl enable --now chrony >/dev/null 2>&1 || true; fi
+  local p="${APP_PORT:-8000}"; if ss -ltn | awk '{print $4}' | grep -q ":${p}\$"; then die "端口 ${p} 已被占用，请修改 .deploy.env 的 APP_PORT 或释放端口后重试"; fi
 }
-
 ensure_docker(){
   ok "安装/检查 Docker Engine 与 Compose 插件"
   if ! command -v docker >/dev/null 2>&1; then
@@ -126,14 +108,10 @@ validate_modules(){
 # ===== 4) 性能优化（失败不阻断）=====
 tune_perf(){
   ok "应用性能优化（失败不阻断）"
-  # BBR
   sysctl -w net.core.default_qdisc=fq >/dev/null 2>&1 || true
   sysctl -w net.ipv4.tcp_congestion_control=bbr >/dev/null 2>&1 || true
-  # 关闭 THP
   [[ -w /sys/kernel/mm/transparent_hugepage/enabled ]] && echo never > /sys/kernel/mm/transparent_hugepage/enabled || true
-  # ulimit
   ulimit -n 65535 || true
-  # Docker 日志轮转
   mkdir -p /etc/docker
   cat >/etc/docker/daemon.json <<'JSON' || true
 { "log-driver": "json-file", "log-opts": { "max-size": "10m", "max-file": "3" } }
@@ -148,6 +126,13 @@ apply_mode(){
     2) ok "覆盖安装：保留数据卷，仅更新镜像与结构" ;;
     3) ok "升级安装：同步差异；如存在迁移将幂等执行" ;;
   esac
+}
+
+# ★★★ 新增：在迁移前强制构建 web 镜像（把最新代码和 alembic.ini 打进镜像） ★★★
+build_web(){
+  ok "构建 Web 镜像（包含最新代码与 alembic.ini）"
+  # --pull 确保基础镜像拉新；不加 --no-cache，保持构建速度；如需彻底重建，可改为 MODE=1 时加 --no-cache
+  docker compose -f "${COMPOSE_FILE}" build --pull web
 }
 
 # ===== 6) 启动 Postgres16 并等待健康 =====
@@ -194,10 +179,7 @@ start_web(){
 }
 
 # ===== 10) 自动热重载导航 =====
-hot_reload(){
-  ok "热重载导航 /api/nav（统计模块/菜单/页签到终端）"
-  bash "${APP_DIR}/scripts/reload_nav.sh" || true
-}
+hot_reload(){ ok "热重载导航 /api/nav（统计模块/菜单/页签到终端）"; bash "${APP_DIR}/scripts/reload_nav.sh" || true; }
 
 # ===== 11) UFW 策略 & 链路验证（本地+公网）=====
 ufw_and_verify(){
@@ -205,10 +187,8 @@ ufw_and_verify(){
   PORT="$(grep '^APP_PORT=' .deploy.env | cut -d= -f2- | tr -d '\r')"
   OPEN="$(grep '^UFW_OPEN=' .deploy.env | cut -d= -f2- | tr -d '\r')"
   if command -v ufw >/dev/null 2>&1 && [[ "${OPEN}" == "true" && "${HOST}" == "0.0.0.0" ]]; then
-    ufw allow "${PORT}/tcp" >/dev/null 2>&1 || true
-    ok "已放行 TCP ${PORT}"
+    ufw allow "${PORT}/tcp" >/dev/null 2>&1 || true; ok "已放行 TCP ${PORT}"
   fi
-  # 公网验证（失败不阻断）
   local PUB=""; PUB="$(curl -sf https://ifconfig.me 2>/dev/null || true)"
   if [[ -n "${PUB}" ]]; then
     curl -sf "http://${PUB}:${PORT}/healthz" >/dev/null 2>&1 && ok "公网 /healthz 200 OK" || warn "公网健康检查失败（可能是云防火墙/安全组未放行）"
@@ -221,8 +201,7 @@ report(){
   local IP="$(hostname -I | awk '{print $1}')"
   ok "部署完成"
   echo "访问地址： http://${IP}:${PORT}/"
-  echo "容器状态："
-  docker compose -f "${COMPOSE_FILE}" ps
+  echo "容器状态："; docker compose -f "${COMPOSE_FILE}" ps
   echo "数据/日志目录： ${APP_DIR}/backups  / ${APP_DIR}/logs"
   echo "一行日志命令："
   echo "  systemd：${LOG_CMD_SYSTEMD}"
@@ -230,7 +209,8 @@ report(){
   echo "  Nginx ：${LOG_CMD_NGINX}"
 }
 
-# ===== 主流程（注意：命令之间必须以分号或换行分隔）=====
+# ===== 主流程（命令之间必须以分号或换行分隔）=====
 need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
 choose_mode; prepare_repo; prepare_env; validate_modules; tune_perf; apply_mode;
+build_web;           # ★ 新增：迁移前构建 web 镜像，确保包含最新的 alembic.ini 与代码
 start_pg; migrate_db; init_admin; start_web; hot_reload; ufw_and_verify; report
