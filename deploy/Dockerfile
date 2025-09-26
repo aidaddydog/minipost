@@ -1,21 +1,21 @@
-# 多阶段简化：实际只需一层即可；确保容器内非 root 运行
-FROM python:3.11-slim
+# 多阶段构建：确保最终镜像非 root 运行
+FROM python:3.11-slim AS base
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# 安装基础依赖（尽量精简）
+# 基础依赖
 RUN apt-get update && apt-get install -y --no-install-recommends \
-    curl ca-certificates build-essential \
-  && rm -rf /var/lib/apt/lists/*
+    build-essential curl ca-certificates \
+ && rm -rf /var/lib/apt/lists/*
 
-# 工作目录
+# 应用目录
 WORKDIR /app
 
-# 复制整个仓库（修复原 COPY 断行问题）
+# ★修复点：必须是一行，把整个仓库拷贝进镜像内的 /app
 COPY . /app
 
-# 安装后端依赖（固定核心版本以提升可预期性）
+# 直接安装依赖（固定核心包）
 RUN pip install --no-cache-dir \
     fastapi==0.115.0 \
     uvicorn==0.30.6 \
@@ -30,11 +30,10 @@ RUN pip install --no-cache-dir \
     requests==2.32.3 \
     python-multipart==0.0.9
 
-# 创建最小权限用户并切换（满足“容器内进程非 root”）
+# 非 root 用户
 RUN useradd -m appuser
 USER appuser
 
 EXPOSE 8000
 
-# 直接启动 uvicorn
 CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
