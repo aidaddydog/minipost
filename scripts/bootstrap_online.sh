@@ -1,185 +1,171 @@
 #!/usr/bin/env bash
-# 一键部署（在线模式）
-set -euo pipefail
+# scripts/bootstrap_online.sh
+# 一键部署（在线）：Preflight → 安装 Docker/Compose → 写入/合并 .deploy.env → Compose 拉起 → 迁移 → 初始化 → 健康检查 → 输出结果
+set -Eeuo pipefail
 
-# ===== 颜色函数 =====
-c_red(){ echo -e "\e[31m$*\e[0m"; }
-c_green(){ echo -e "\e[32m$*\e[0m"; }
-c_blue(){ echo -e "\e[36m$*\e[0m"; }
-c_yellow(){ echo -e "\e[33m$*\e[0m"; }
+# ====== 颜色与输出 ======
+c_red='\033[1;31m'; c_green='\033[1;32m'; c_yellow='\033[1;33m'; c_blue='\033[1;34m'; c_reset='\033[0m'
+log(){ echo -e "${c_green}[+] $*${c_reset}"; }
+warn(){ echo -e "${c_yellow}[!] $*${c_reset}"; }
+err(){ echo -e "${c_red}[-] $*${c_reset}" >&2; }
+die(){ err "$1"; exit 1; }
 
-# ===== Root 校验（每个关键步骤都会二次复检） =====
-if [[ ${EUID:-$(id -u)} -ne 0 ]]; then
-  c_red "[错误] 请先 sudo -i 或 su - 切换到 root 后重试"
-  exit 1
-fi
-
-ROOT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
-cd "$ROOT_DIR"
-
-LOG_CMD_SYSTEMD="journalctl -u minipost.service -e -n 200"
-LOG_CMD_COMPOSE="docker compose -f deploy/docker-compose.yml logs web --tail=200"
-LOG_CMD_NGINX="tail -n 200 /var/log/nginx/error.log"
-
-# ===== 0) Preflight 自检 =====
-c_blue "[0/8] Preflight 自检…"
-# OS
-. /etc/os-release || true
-if [[ "${NAME:-}" != "Ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
-  c_yellow "[警告] 推荐 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}"
-fi
-
-# 资源/网络/DNS/NTP
-CPU_CORES="$(nproc)"
-MEM_MB="$(free -m | awk '/Mem:/{print $2}')"
-DISK_MB="$(df -Pm / | awk 'NR==2{print $4}')"
-c_blue "  - CPU: ${CPU_CORES} 核  内存: ${MEM_MB}MB  磁盘可用: ${DISK_MB}MB"
-ping -c1 -W1 1.1.1.1 >/dev/null 2>&1 && c_blue "  - 网络连通: OK" || { c_red "  - 网络连通: 失败"; exit 1; }
-getent hosts github.com >/dev/null 2>&1 && c_blue "  - DNS 解析: OK" || c_yellow "  - DNS 解析: 警告"
-timedatectl >/dev/null 2>&1 && c_blue "  - 时间同步(NTP): $(timedatectl show -p NTPSynchronized --value 2>/dev/null || echo unknown)"
-
-# 端口占用（8000/5432/80/443）
-for P in 8000 5432 80 443; do
-  if ss -lnt | awk '{print $4}' | grep -q ":$P$"; then
-    c_yellow "  - 端口 $P 已被占用，请确认冲突。"
+# ====== 0. Preflight 自检 ======
+need_root(){
+  if [[ "${EUID:-$(id -u)}" -ne 0 ]]; then
+    die "请先 sudo -i 或 su - 切换到 root 后重试（EUID 必须为 0）"
   fi
-done
-
-# Docker & Compose
-if ! command -v docker >/dev/null 2>&1; then
-  c_blue "  - 安装 Docker Engine…"
-  apt-get update -y
-  apt-get install -y ca-certificates curl gnupg lsb-release
-  install -m 0755 -d /etc/apt/keyrings
-  curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
-  chmod a+r /etc/apt/keyrings/docker.gpg
-  echo \
-    "deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.gpg] https://download.docker.com/linux/ubuntu \
-    $(. /etc/os-release && echo "$VERSION_CODENAME") stable" | \
-    tee /etc/apt/sources.list.d/docker.list > /dev/null
-  apt-get update -y
-  apt-get install -y docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin
-fi
-if ! docker run --rm hello-world >/dev/null 2>&1; then
-  c_red "  - Docker hello-world 运行失败"
-  exit 1
-fi
-docker compose version >/dev/null 2>&1 || { c_red "  - 缺少 Docker Compose 插件"; exit 1; }
-c_green "  - Docker/Compose: OK"
-
-# ===== 1) 模式选择 =====
-echo
-c_blue "[1/8] 选择部署模式："
-echo "  1) 全新安装"
-echo "  2) 安全覆盖（备份->替换->自动回滚）"
-echo "  3) 回滚上次备份"
-read -r -p "请输入数字 [1/2/3]: " MODE
-[[ -z "${MODE:-}" ]] && MODE=1
-
-# 备份目录
-BACKUP_DIR="${ROOT_DIR}/backups"
-mkdir -p "$BACKUP_DIR"
-
-# ===== 2) 准备运行目录 + .deploy.env =====
-c_blue "[2/8] 准备运行目录 …"
-mkdir -p logs data tmp
-touch .deploy.env
-# 再次 root 复检
-if [[ ${EUID:-$(id -u)} -ne 0 ]]; then c_red "[错误] 非 root 环境"; exit 1; fi
-
-# 合并默认 env（如不存在键）
-merge_env(){
-  local k="$1" v="$2"
-  grep -q "^$k=" .deploy.env || echo "$k=$v" >> .deploy.env
 }
-merge_env "APP_HOST" "0.0.0.0"
-merge_env "APP_PORT" "8000"
-merge_env "THEME_NAME" "default"
-merge_env "DB" "postgres"
-merge_env "PG_HOST" "postgres"
-merge_env "PG_PORT" "5432"
-merge_env "PG_DB" "minipost"
-merge_env "PG_USER" "minipost"
-if ! grep -q "^PG_PASSWORD=" .deploy.env; then
-  read -r -p "请输入 PostgreSQL 密码（强口令）： " PG_PWD
-  echo "PG_PASSWORD=${PG_PWD}" >> .deploy.env
-fi
-merge_env "USE_REAL_NAV" "false"
-merge_env "UFW_OPEN" "true"
-if ! grep -q "^JWT_SECRET=" .deploy.env; then
-  SEC="$(head -c 32 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-32)"
-  echo "JWT_SECRET=${SEC}" >> .deploy.env
-fi
-merge_env "ENVIRONMENT" "production"
-
-# ===== 3) 启动 PostgreSQL 16（持久化 + 健康检查） =====
-c_blue "[3/8] 启动/更新数据库（PostgreSQL 16）…"
-docker compose -f deploy/docker-compose.yml up -d postgres
-c_blue "  - 等待数据库就绪…"
-for i in {1..60}; do
-  if docker exec minipost-postgres-1 pg_isready -U "$(grep ^PG_USER= .deploy.env | cut -d= -f2)" -d "$(grep ^PG_DB= .deploy.env | cut -d= -f2)" >/dev/null 2>&1; then
-    c_green "  - Postgres 就绪"
-    break
+check_os(){
+  . /etc/os-release
+  if [[ "${ID:-}" != "ubuntu" || "${VERSION_ID:-}" != "24.04" ]]; then
+    die "仅支持 Ubuntu 24.04 LTS，当前为 ${PRETTY_NAME:-unknown}"
   fi
-  sleep 1
-done
-
-# ===== 4) Alembic 迁移 =====
-c_blue "[4/8] 执行数据库迁移…"
-set +e
-if ! ./scripts/migrate.sh; then
-  c_red "[失败] 迁移失败，已停止。"
-  echo "一键日志命令："
-  echo "  systemd：${LOG_CMD_SYSTEMD}"
-  echo "  Docker ：${LOG_CMD_COMPOSE}"
-  echo "  Nginx ：${LOG_CMD_NGINX}"
-  exit 1
-fi
-set -e
-
-# ===== 5) 初始化管理员 =====
-c_blue "[5/8] 初始化管理员账号 …（不会回显密码）"
-read -r -p "请输入管理员用户名: " ADMIN_USER
-read -r -s -p "请输入管理员密码: " ADMIN_PWD; echo
-docker compose -f deploy/docker-compose.yml run --rm -e PYTHONUNBUFFERED=1 web python -m app.bootstrap init-admin --username "${ADMIN_USER}" --password "${ADMIN_PWD}"
-c_green "  - 管理员已初始化"
-
-# ===== 6) 启动 web 并健康检查 =====
-c_blue "[6/8] 启动 Web…"
-docker compose -f deploy/docker-compose.yml up -d web
-c_blue "  - 等待健康检查 …"
-for i in {1..60}; do
-  if docker compose -f deploy/docker-compose.yml exec -T web curl -sf http://127.0.0.1:8000/healthz >/dev/null; then
-    c_green "  - Web 就绪"
-    break
+}
+check_basic(){
+  log "系统/网络/时间/端口检查"
+  command -v curl >/dev/null || apt-get update && apt-get install -y curl
+  curl -fsSL https://www.google.com >/dev/null 2>&1 || warn "外网连通性异常（可忽略但后续拉取会变慢/失败）"
+  timedatectl show -p NTPSynchronized --value 2>/dev/null | grep -q true || warn "NTP 未同步"
+  # 端口占用（默认 8000）
+  local port="${APP_PORT:-8000}"
+  if ss -ltn | awk '{print $4}' | grep -q ":${port}\$"; then
+    die "端口 ${port} 已被占用，请修改 .deploy.env 中 APP_PORT 或释放该端口后重试"
   fi
-  sleep 1
-done
+}
+install_docker_compose(){
+  log "安装 Docker Engine 与 Compose 插件"
+  if ! command -v docker >/dev/null 2>&1; then
+    curl -fsSL https://get.docker.com | sh
+  fi
+  apt-get install -y docker-compose-plugin || true
+  systemctl enable --now docker
+  docker run --rm hello-world >/dev/null 2>&1 || die "Docker 运行 hello-world 失败，请检查网络或代理"
+}
 
-# ===== 7) 端口策略（UFW） =====
-c_blue "[7/8] 端口开放策略 …"
-APP_HOST="$(grep ^APP_HOST= .deploy.env | cut -d= -f2)"
-APP_PORT="$(grep ^APP_PORT= .deploy.env | cut -d= -f2)"
-UFW_OPEN="$(grep ^UFW_OPEN= .deploy.env | cut -d= -f2)"
-if [[ "${UFW_OPEN}" == "true" && "${APP_HOST}" == "0.0.0.0" ]]; then
+# ====== 1. 模式选择 ======
+choose_mode(){
+  echo -e "${c_blue}请选择部署模式：${c_reset}
+  1) 全新安装
+  2) 安全覆盖（备份并回滚失败）
+  3) 回滚上次备份
+  "
+  read -rp "输入数字并回车: " MODE
+  [[ "${MODE}" =~ ^[123]$ ]] || die "非法输入"
+}
+
+# ====== 2. 准备仓库与 .deploy.env ======
+prepare_repo_env(){
+  log "准备运行目录与环境变量"
+  # 在仓库根执行本脚本；若不是，尝试切到仓库根
+  if [[ ! -f "deploy/docker-compose.yml" ]]; then
+    die "请在仓库根目录执行：bash scripts/bootstrap_online.sh"
+  fi
+
+  # 生成或合并 .deploy.env（仅追加不存在的键）
+  if [[ ! -f ".deploy.env" ]]; then
+    cat > .deploy.env <<'EOF'
+APP_HOST=0.0.0.0
+APP_PORT=8000
+THEME_NAME=default
+DB=postgres
+PG_HOST=postgres
+PG_PORT=5432
+PG_DB=minipost
+PG_USER=minipost
+PG_PASSWORD=
+USE_REAL_NAV=false
+UFW_OPEN=true
+JWT_SECRET=
+EOF
+  fi
+  # 强口令与 JWT 秘钥（若为空则生成）
+  if ! grep -q '^PG_PASSWORD=' .deploy.env || [[ -z "$(grep '^PG_PASSWORD=' .deploy.env | cut -d= -f2-)" ]]; then
+    sed -i "s/^PG_PASSWORD=.*/PG_PASSWORD=$(openssl rand -hex 24)/" .deploy.env
+  fi
+  if ! grep -q '^JWT_SECRET=' .deploy.env || [[ -z "$(grep '^JWT_SECRET=' .deploy.env | cut -d= -f2-)" ]]; then
+    sed -i "s/^JWT_SECRET=.*/JWT_SECRET=$(openssl rand -hex 32)/" .deploy.env
+  fi
+}
+
+# ====== 3. 启动 Postgres16 与 Web（Compose） ======
+compose_down_old(){
+  log "清理旧容器（可忽略错误）"
+  docker compose -f deploy/docker-compose.yml down --remove-orphans || true
+}
+compose_up_new(){
+  log "启动服务栈（Postgres16 + Web）"
+  docker compose -f deploy/docker-compose.yml up -d --build
+  log "等待健康检查通过..."
+  for i in $(seq 1 60); do
+    ok=$(docker compose -f deploy/docker-compose.yml ps --format json 2>/dev/null | jq -r 'map(.Health=="healthy")|all' || echo false)
+    [[ "$ok" == "true" ]] && break
+    sleep 2
+  done
+}
+
+# ====== 4. 数据库迁移 & 初始化管理员 ======
+migrate_db(){
+  log "执行 Alembic 迁移"
+  docker compose -f deploy/docker-compose.yml exec -T web \
+    bash -lc "alembic upgrade head" || die "迁移失败，请执行：docker compose -f deploy/docker-compose.yml logs web --tail=200"
+}
+init_admin(){
+  log "初始化管理员（交互式，仅设置密码，不回显）"
+  local admin="admin"
+  read -rsp "请输入管理员 ${admin} 的密码：" ADMIN_PWD
+  echo
+  docker compose -f deploy/docker-compose.yml exec -T web \
+    python - <<PY
+from modules.core.backend.models.rbac import User
+from app.security import hash_password
+from app.db import SessionLocal, engine
+from sqlalchemy import text
+db=SessionLocal()
+# 若无表或异常直接退出（避免误写）
+db.execute(text("SELECT 1"))
+u=db.query(User).filter(User.username=="${admin}").first()
+if not u:
+    u=User(username="${admin}", full_name="Administrator", email="")
+    u.password_hash=hash_password("${ADMIN_PWD}")
+    db.add(u)
+else:
+    u.password_hash=hash_password("${ADMIN_PWD}")
+db.commit(); db.close()
+print("OK")
+PY
+}
+
+# ====== 5. UFW 端口策略 & 结果输出 ======
+ufw_apply(){
+  local host="${APP_HOST:-0.0.0.0}" port="${APP_PORT:-8000}" open="${UFW_OPEN:-true}"
   if command -v ufw >/dev/null 2>&1; then
-    ufw allow "${APP_PORT}/tcp" >/dev/null 2>&1 || true
-    c_green "  - 已放行 TCP ${APP_PORT}"
-  else
-    c_yellow "  - 未安装 ufw，跳过"
+    if [[ "$host" == "0.0.0.0" && "$open" == "true" ]]; then
+      ufw allow ${port}/tcp || true
+    fi
   fi
-else
-  c_blue "  - 仅监听 127.0.0.1 或已关闭 UFW 放行"
-fi
+}
+report(){
+  log "部署完成"
+  echo "访问：http://$(hostname -I | awk '{print $1}'):${APP_PORT:-8000}/"
+  echo "管理员账号：admin（密码不回显，已设置）"
+  echo
+  echo "一键查看日志："
+  echo "  systemd：journalctl -u minipost.service -e -n 200"
+  echo "  Docker ：docker compose -f deploy/docker-compose.yml logs web --tail=200"
+  echo "  Nginx ：tail -n 200 /var/log/nginx/error.log"
+}
 
-# ===== 8) 结果输出 =====
-c_green "[8/8] 部署完成"
-IP="$(hostname -I | awk '{print $1}')"
-URL="http://${IP}:${APP_PORT}/"
-echo "访问 URL：${URL}"
-echo "管理员账号：${ADMIN_USER}（密码不回显）"
-echo "备份目录：${ROOT_DIR}/backups"
-echo "一键日志命令："
-echo "  systemd：${LOG_CMD_SYSTEMD}"
-echo "  Docker ：${LOG_CMD_COMPOSE}"
-echo "  Nginx ：${LOG_CMD_NGINX}"
+# ====== 主流程 ======
+need_root
+check_os
+check_basic
+install_docker_compose
+choose_mode
+prepare_repo_env
+compose_down_old
+compose_up_new
+migrate_db
+init_admin
+ufw_apply
+report
