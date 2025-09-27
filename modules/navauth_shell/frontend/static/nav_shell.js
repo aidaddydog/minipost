@@ -1,36 +1,46 @@
-/* modules/navauth_shell/frontend/static/nav_shell.js  (V3)
- * 壳层交互：L1/L2/L3 导航 + 页签 Ink + 整页灰滤镜（壳层蒙层）
- * - 自动注入 .tab-ink（滑动圆角线）与 .shell-mask（壳层全局蒙层）样式
- * - iframe 层级抬高到蒙层之上：灰滤镜全屏可见，同时 iframe 内的弹窗可交互
- * - 默认 L1→L2→L3：优先找 nav 数据里的 { default:true }，否则取第一个 visible=true
+/* modules/navauth_shell/frontend/static/nav_shell.js  (V4)
+ * 功能：
+ * 1) L1/L2/L3 导航 & 页签 Ink（滑动圆角线）
+ * 2) “单一灰层 + 仲裁”：ChatGPT 风格模糊灰层（backdrop-filter），统一管控整页遮罩
+ *    - 当壳层弹窗出现：灰层仅作模糊，不拦截（pointer-events:none），壳层弹窗可点
+ *    - 当 iframe(业务模块) 弹窗出现：灰层拦截壳层背景，并临时抬高 iframe 以便点到 iframe 内弹窗
+ * 3) 默认 L1→L2→L3：优先 {default:true}，否则取首个 visible
  */
 
 (function(){
   // -------------------- DOM --------------------
   const body     = document.body;
-  const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true'); // 壳层 body 上 data-use-real-nav="true" 时走真实 /api/nav
-  const track    = document.getElementById('navTrack');   // L1 容器（轨道）
+  const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true'); // 后端真实导航
+  const track    = document.getElementById('navTrack');   // L1 容器
   const pill     = document.getElementById('pill');       // L1 胶囊
   const subInner = document.getElementById('subInner');   // L2 容器
   const tabsEl   = document.getElementById('tabs');       // L3 页签容器
   const tabCard  = document.getElementById('tabCard');    // 卡片
   const tabPanel = document.getElementById('tabPanel');   // 卡片内容（iframe 挂载点）
 
-  // -------------------- 注入补丁 CSS --------------------
+  // -------------------- 注入补丁 CSS（Ink + 模糊灰层 + 统一层级） --------------------
   (function injectPatchCSS(){
     const OLD_ID = 'navShellPatch';
     document.getElementById(OLD_ID)?.remove();
 
-    // 采用极高层级，确保壳层任意元素都被蒙层覆盖；iframe 再 +1 确保可交互
-    const Z_SHELL_MASK = 2147483000;
-    const Z_IFRAME     = 2147483001;
+    // 层级契约：壳层普通UI < 壳层灰层(5000) < iframe-抬高(6000) < 壳层弹窗(>=7000)
+    const Z_SHELL_MASK   = 5000;
+    const Z_IFRAME_NORM  = 4000;
+    const Z_IFRAME_ELEV  = 6000;
 
     const css = `
 :root{
+  /* 页签 Ink 参数（与演示一致） */
   --tab-text-ml:37px;
   --tab-ink-height:2px; --tab-ink-radius:999px; --tab-ink-color:#000;
   --tab-ink-pad-x:-8px; --tab-ink-ml:6px; --tab-ink-mt:-1px;
+
+  /* 灰层参数（可调） */
+  --mask-bg: rgba(15,23,42,.24);   /* 背景暗度（建议 0.18~0.32） */
+  --mask-blur: 8px;                /* 模糊半径（建议 6~10px） */
+  --mask-saturate: 1.1;            /* 饱和度微调（可选） */
 }
+
 /* 页签 Ink（滑动圆角线） */
 .tabs{ position:relative; z-index:2; }
 .tab__text{ display:inline-block; margin-left:var(--tab-text-ml); }
@@ -44,17 +54,27 @@
     width     var(--anim-speed,.25s) var(--anim-ease,cubic-bezier(.22,.61,.36,1));
   z-index:4; pointer-events:none; opacity:1;
 }
-/* 壳层全局蒙层：与 iframe 内弹窗背景叠加，实现整页灰滤镜 */
+
+/* 壳层“单一灰层”：ChatGPT 风格模糊 + 轻度变暗；默认不接收事件 */
 .shell-mask{
-  position:fixed; left:0; top:0; right:0; bottom:0; width:100vw; height:100vh;
-  background:rgba(0,0,0,.35);
-  display:none; z-index:${Z_SHELL_MASK};
+  position:fixed; inset:0; width:100vw; height:100vh;
+  background:var(--mask-bg);
+  -webkit-backdrop-filter: saturate(var(--mask-saturate)) blur(var(--mask-blur));
+  backdrop-filter:         saturate(var(--mask-saturate)) blur(var(--mask-blur));
+  opacity:0; pointer-events:none; transition:opacity .2s ease;
+  z-index:${Z_SHELL_MASK};
 }
-.shell-mask.show{ display:block; }
-/* iframe 置于蒙层之上，保证可以点击到 iframe 内弹窗 */
+html.mask-show .shell-mask{ opacity:1; }
+/* 当由 iframe 弹窗驱动时，需要阻止点击穿透壳层背景 */
+html.mask-mode--module .shell-mask{ pointer-events:auto; }
+/* 当由壳层弹窗驱动时，仅做背景模糊，不拦截（让壳层弹窗自身遮罩拦截） */
+html.mask-mode--shell .shell-mask{ pointer-events:none; }
+
+/* 业务 iframe 层级：默认低于灰层；由仲裁决定是否临时抬高 */
 .tabrow .tab-wrap .tabcard .tabpanel iframe{
-  position:relative; z-index:${Z_IFRAME}; border:0; width:100%;
+  position:relative; z-index:${Z_IFRAME_NORM}; border:0; width:100%;
 }
+html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_IFRAME_ELEV}; }
 `;
     const style = document.createElement('style');
     style.id = OLD_ID;
@@ -62,34 +82,105 @@
     document.head.appendChild(style);
   })();
 
-  // -------------------- 壳层全局蒙层节点 --------------------
+  // -------------------- 壳层全局“模糊灰层”节点 --------------------
   const shellMask = (function ensureMask(){
     let el = document.getElementById('shellMask');
     if(!el){
       el = document.createElement('div');
       el.id = 'shellMask';
       el.className = 'shell-mask';
-      document.body.appendChild(el); // 一定挂到 <body> 直下
+      document.body.appendChild(el);
     }
     return el;
   })();
-  function hideShellMask(){
-    shellMask.classList.remove('show');
-    document.documentElement.style.overflow = '';
+
+  // -------------------- 仲裁状态（壳层弹窗 vs 模块弹窗） --------------------
+  let state = {
+    moduleBackdropActive: false, // iframe里是否有弹窗
+    shellModalActive:     false  // 壳层自身是否有弹窗
+  };
+
+  function applyMaskState(){
+    const doc = document.documentElement;
+    const show = state.moduleBackdropActive || state.shellModalActive;
+    doc.classList.toggle('mask-show', show);
+    // 先清空两种模式
+    doc.classList.remove('mask-mode--module','mask-mode--shell');
+    if(!show){
+      document.documentElement.style.overflow = '';
+      return;
+    }
+    if(state.shellModalActive){
+      doc.classList.add('mask-mode--shell');   // 仅模糊，事件不拦截
+      document.documentElement.style.overflow = 'hidden';
+      return;
+    }
+    // 仅模块弹窗：模糊 + 灰层拦截壳层背景， iframe 临时抬高
+    doc.classList.add('mask-mode--module');
+    document.documentElement.style.overflow = 'hidden';
   }
-  // 监听来自 iframe 的联动消息
+  function hideMaskAll(){
+    state.moduleBackdropActive = false;
+    state.shellModalActive     = false;
+    applyMaskState();
+  }
+
+  // -------------------- 与 iframe 联动：postMessage（来源：模块桥接脚本） --------------------
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
     if(msg && msg.type === 'shell-mask'){
-      const show = msg.action === 'show';
-      shellMask.classList.toggle('show', show);
-      document.documentElement.style.overflow = show ? 'hidden' : '';
+      const show   = msg.action === 'show' || msg.visible === true;
+      const source = msg.source || 'module'; // 兼容旧版：默认为 module
+      if(source === 'module' || source === 'iframe'){
+        state.moduleBackdropActive = !!show;
+        applyMaskState();
+      }
     }
   });
 
-  // -------------------- 状态 & 存储 --------------------
-  const SCHEMA_VERSION = 3;
-  const STORAGE_KEY    = 'NAV_STATE_V3';
+  // -------------------- 监听“壳层自身弹窗”可见性（统一仲裁） --------------------
+  const SHELL_MODAL_SELECTORS = [
+    '.modal',                          // 自研/演示
+    'dialog[aria-modal="true"]',       // 原生
+    '.ant-modal-wrap', '.ant-drawer-mask', '.ant-modal-root',
+    '.el-overlay', '.el-dialog__wrapper',
+    '.layui-layer-shade', '.layui-layer',
+    '.van-overlay'
+  ];
+  function isVisible(el){
+    if(!el || !el.ownerDocument) return false;
+    const st = getComputedStyle(el);
+    if(st.display==='none' || st.visibility==='hidden' || parseFloat(st.opacity||'1') === 0) return false;
+    const r = el.getBoundingClientRect();
+    return r.width>0 && r.height>0;
+  }
+  function anyShellModalVisible(){
+    for(const sel of SHELL_MODAL_SELECTORS){
+      const list = document.querySelectorAll(sel);
+      for(const el of list){ if(isVisible(el)) return true; }
+    }
+    const extra = document.querySelectorAll('[role="dialog"]');
+    for(const el of extra){ if(isVisible(el)) return true; }
+    return false;
+  }
+  const moShell = new MutationObserver(()=>{
+    const v = anyShellModalVisible();
+    if(v !== state.shellModalActive){
+      state.shellModalActive = v;
+      applyMaskState();
+    }
+  });
+  moShell.observe(document.documentElement, {
+    childList:true, subtree:true, attributes:true,
+    attributeFilter:['style','class','open','hidden','aria-hidden']
+  });
+  // 首次计算
+  state.shellModalActive = anyShellModalVisible();
+  applyMaskState();
+
+  // -------------------- 导航/页签（与演示一致） --------------------
+  const SCHEMA_VERSION = 4;
+  const STORAGE_KEY    = 'NAV_STATE_V4';
   let items = [];             // L1 列表（含 children）
   let lockedPath    = '/';    // 当前 L1 path
   let lockedSubHref = '';     // 当前 L2 href
@@ -115,7 +206,6 @@
     }catch(e){}
   }
 
-  // -------------------- 工具 --------------------
   const $ = (s, el=document)=> el.querySelector(s);
   function cssVarNum(name, fallback=0){
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
@@ -184,7 +274,7 @@
   }
   window.addEventListener('resize', ()=> positionTabInk(tabsEl?.querySelector('.tab.active'), false));
 
-  // -------------------- 默认项选取 --------------------
+  // 默认项选取（支持 YAML/后端 nav 的 default:true）
   function getCurrentL1(){ return items.find(x=>x.path===lockedPath) || items[0] || null; }
   function getCurrentL2(){
     const l1 = getCurrentL1(); if(!l1) return null;
@@ -201,9 +291,8 @@
         || null;
   }
 
-  // -------------------- 渲染 L1/L2/L3 --------------------
+  // 渲染 L1/L2/L3
   function renderL1(){
-    // 清理并重绘
     track.querySelectorAll('a.link').forEach(x=>x.remove());
     (items||[]).forEach(it=>{
       const a=document.createElement('a');
@@ -220,10 +309,9 @@
         lockedTabHref = l3 ? l3.path : '';
         saveState();
 
-        // UI & 内容
         renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
         movePillToEl(a);
-        hideShellMask(); // 切换时兜底隐藏壳层蒙层
+        hideMaskAll(); // 切换时兜底关闭灰层
         if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
       track.appendChild(a);
@@ -246,11 +334,10 @@
         lockedTabHref = l3 ? l3.path : '';
         saveState();
 
-        // 视觉 & 内容
         subInner.querySelectorAll('a.sub').forEach(x=>x.classList.remove('active'));
         a.classList.add('active');
         renderTabs(); loadTabContent(lockedTabHref);
-        hideShellMask();
+        hideMaskAll();
         if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
     });
@@ -276,7 +363,7 @@
         saveState();
         positionTabInk(a, true);
         loadTabContent(lockedTabHref);
-        hideShellMask();
+        hideMaskAll();
         if(USE_REAL_NAV && lockedTabHref) window.location.href = lockedTabHref;
       });
     });
@@ -292,7 +379,7 @@
     row.style.minHeight=(textH+5)+'px';
   }
 
-  // -------------------- 载入业务内容（iframe 放在页签下面） --------------------
+  // 载入业务内容（iframe 放在页签下面）
   function loadTabContent(href){
     if(!href){ tabPanel.innerHTML=''; return; }
     tabPanel.innerHTML = '';
@@ -314,7 +401,7 @@
     new ResizeObserver(fit).observe(tabPanel);
   }
 
-  // -------------------- 启动 --------------------
+  // 启动
   function initAfterNav(){
     restoreState();
 
@@ -339,7 +426,7 @@
 
   async function bootstrap(){
     if(!USE_REAL_NAV){
-      // 演示/本地联调（与演示页结构一致）：可删除
+      // 演示/本地联调（与演示结构一致）
       items = [{
         level:1, title:'物流', path:'/logistics', visible:true, children:[
           { level:2, title:'物流渠道', path:'/logistics/channel', visible:true, default:true, children:[
