@@ -12,6 +12,30 @@
   const tabCard  = document.getElementById('tabCard');
   const tabPanel = document.getElementById('tabPanel');
 
+  // === Inline L3 content loader (embed into tabPanel instead of full-page navigation) ===
+  function ensureTabFrame(){
+    let frame = tabPanel.querySelector('iframe.tabpanel__frame');
+    if(!frame){
+      frame = document.createElement('iframe');
+      frame.className = 'tabpanel__frame';
+      frame.setAttribute('frameborder', '0');
+      frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
+      frame.style.width = '100%';
+      frame.style.border = '0';
+      frame.style.minHeight = 'calc(100vh - 220px)'; // 简易适配，可按需在 CSS 中调整 --tab-frame-offset
+      tabPanel.innerHTML = '';
+      tabPanel.appendChild(frame);
+    }
+    return frame;
+  }
+  function loadTabContent(href){
+    if(!href) return;
+    const frame = ensureTabFrame();
+    if(frame.getAttribute('src') !== href){
+      frame.setAttribute('src', href);
+    }
+  }
+
   // 状态
   let L1 = []; // [{title, path, children: L2[]}]
   let lockedPath = '';
@@ -171,6 +195,8 @@
     ).join('');
     ensureTabInk();
     tabCard.classList.remove('no-tabs');
+    // 初次或刷新时载入当前激活 tab 的内容
+    if(lockedTabHref){ loadTabContent(lockedTabHref); }
     tabPanel.textContent = '此处为业务模块内容占位。';
     requestAnimationFrame(()=>positionTabInk(tabsEl.querySelector('.tab.active'), false));
   }
@@ -217,7 +243,7 @@
     const L3 = ((l1?.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false);
     renderTabs(L3);
 
-    if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
+    if(lockedSubHref){ const l1 = findL1(lockedPath); const L3 = ((l1?.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false); const first = (L3[0] && L3[0].path) || ''; if(first) loadTabContent(first); }
   });
 
   tabsEl.addEventListener('click', (e)=>{
@@ -229,8 +255,10 @@
     try{ localStorage.setItem('NAV_STATE_V11', JSON.stringify({v:11, lockedPath, lockedSubHref, lockedTabHref, ts:Date.now()})); }catch(e){}
     positionTabInk(t, true);
     tabCard.classList.remove('no-tabs');
+    // 初次或刷新时载入当前激活 tab 的内容
+    if(lockedTabHref){ loadTabContent(lockedTabHref); }
     tabPanel.textContent = '此处为业务模块内容占位。';
-    if(USE_REAL_NAV && lockedTabHref) window.location.href = lockedTabHref;
+    if(lockedTabHref) loadTabContent(lockedTabHref);
   });
 
   window.addEventListener('resize', ()=>{ positionTabInk(tabsEl.querySelector('.tab.active'), false); });
