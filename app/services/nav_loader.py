@@ -18,17 +18,21 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, List, Any
 from datetime import datetime, timezone
-import json, hashlib
+import json, hashlib, os
 
 try:
     import yaml  # type: ignore
 except Exception as e:  # pragma: no cover
     raise RuntimeError("缺少 PyYAML，请确保环境已安装 python3-yaml") from e
 
-# 目录定位：.../app/services/nav_loader.py → repo 根 = parents[2]
+# 仓库根目录：.../app/services/nav_loader.py → parents[2]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 MODULES_DIR = REPO_ROOT / "modules"
-CACHE_FILE  = REPO_ROOT / "app" / ".nav-cache.json"  # 可选缓存，方便排障
+
+# 缓存位置（可写目录）。优先环境变量，否则使用 repo 内 runtime/
+DEFAULT_CACHE_DIR = REPO_ROOT / "runtime"
+CACHE_DIR  = Path(os.getenv("NAV_CACHE_DIR", str(DEFAULT_CACHE_DIR)))
+CACHE_FILE = Path(os.getenv("NAV_CACHE_FILE", str(CACHE_DIR / "nav.cache.json")))
 
 def _find_yaml(cfg_dir: Path, stem: str) -> Path | None:
     """在 cfg_dir 下查找指定 stem 的 .yaml/.yml 文件，优先 .yaml"""
@@ -116,6 +120,15 @@ def _validate_tabs(tabs: dict, mod: str) -> int:
             count += 1
     return count
 
+def _write_cache_safe(nav: Dict[str, Any]) -> None:
+    """写入缓存（可选）；失败时静默降级，不影响功能"""
+    try:
+        CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        CACHE_FILE.write_text(json.dumps(nav, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:
+        # 日志系统里可加 warning；这里静默跳过
+        pass
+
 def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
     """
     生成聚合导航：
@@ -130,7 +143,7 @@ def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
         now = datetime.now(timezone.utc).isoformat()
         nav = {"menu": {}, "tabs": {}, "generated_at": now, "hash": "0"*16, "stats": stats}
         if write_cache:
-            CACHE_FILE.write_text(json.dumps(nav, ensure_ascii=False, indent=2), encoding="utf-8")
+            _write_cache_safe(nav)
         return nav
 
     # 递归找到所有 config 目录
@@ -181,12 +194,12 @@ def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
                         "order": it.get("order", 100),
                     }
                     bucket.append(row)
-                # 去重（优先按 key，其次 href）
+                # 去重（先 key 后 href），并排序
                 _dedupe_by_key(bucket, "key")
                 _dedupe_by_key(bucket, "href")
                 _sorted_inplace(bucket)
 
-        stats["modules"] += 1  # 统计扫描到的 config 目录个数
+        stats["modules"] += 1  # 计数：扫描到的 config 目录
 
     # 生成摘要
     now = datetime.now(timezone.utc).isoformat()
@@ -195,6 +208,6 @@ def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
     nav = {"menu": menu, "tabs": tabs, "generated_at": now, "hash": sha, "stats": stats}
 
     if write_cache:
-        CACHE_FILE.write_text(json.dumps(nav, ensure_ascii=False, indent=2), encoding="utf-8")
+        _write_cache_safe(nav)
 
     return nav
