@@ -1,32 +1,32 @@
-/* modules/navauth_shell/frontend/static/nav_shell.js  (V4)
- * 功能：
- * 1) L1/L2/L3 导航 & 页签 Ink（滑动圆角线）
- * 2) “单一灰层 + 仲裁”：ChatGPT 风格模糊灰层（backdrop-filter），统一管控整页遮罩
- *    - 当壳层弹窗出现：灰层仅作模糊，不拦截（pointer-events:none），壳层弹窗可点
- *    - 当 iframe(业务模块) 弹窗出现：灰层拦截壳层背景，并临时抬高 iframe 以便点到 iframe 内弹窗
+/* modules/navauth_shell/frontend/static/nav_shell.js  (V5)
+ * 功能总览：
+ * 1) L1/L2/L3 导航与页签 Ink（滑动圆角线，与演示一致）
+ * 2) “单一灰层 + 仲裁”：
+ *    - ChatGPT 风格：仅透明模糊（无任何颜色叠加）
+ *    - shell 弹窗：灰层在下，弹窗在上（不被模糊，可交互）
+ *    - module 弹窗：仅提升 #tabCard/#tabPanel/iframe 到灰层之上，tabs 仍被灰层冻结
  * 3) 默认 L1→L2→L3：优先 {default:true}，否则取首个 visible
  */
 
 (function(){
   // -------------------- DOM --------------------
   const body     = document.body;
-  const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true'); // 后端真实导航
-  const track    = document.getElementById('navTrack');   // L1 容器
-  const pill     = document.getElementById('pill');       // L1 胶囊
-  const subInner = document.getElementById('subInner');   // L2 容器
-  const tabsEl   = document.getElementById('tabs');       // L3 页签容器
-  const tabCard  = document.getElementById('tabCard');    // 卡片
-  const tabPanel = document.getElementById('tabPanel');   // 卡片内容（iframe 挂载点）
+  const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true');
+  const track    = document.getElementById('navTrack');
+  const pill     = document.getElementById('pill');
+  const subInner = document.getElementById('subInner');
+  const tabsEl   = document.getElementById('tabs');
+  const tabCard  = document.getElementById('tabCard');
+  const tabPanel = document.getElementById('tabPanel');
 
-  // -------------------- 注入补丁 CSS（Ink + 模糊灰层 + 统一层级） --------------------
+  // -------------------- 注入样式（Ink + 透明模糊灰层 + 层级契约） --------------------
   (function injectPatchCSS(){
     const OLD_ID = 'navShellPatch';
     document.getElementById(OLD_ID)?.remove();
 
-    // 层级契约：壳层普通UI < 壳层灰层(5000) < iframe-抬高(6000) < 壳层弹窗(>=7000)
+    // 层级契约：壳层普通UI < 灰层(5000) < 模块卡片提升(6000) < 壳层弹窗(>=7000)
     const Z_SHELL_MASK   = 5000;
-    const Z_IFRAME_NORM  = 4000;
-    const Z_IFRAME_ELEV  = 6000;
+    const Z_IFRAME_ELEV  = 6000; // 只在 module 弹窗时临时使用
 
     const css = `
 :root{
@@ -35,10 +35,9 @@
   --tab-ink-height:2px; --tab-ink-radius:999px; --tab-ink-color:#000;
   --tab-ink-pad-x:-8px; --tab-ink-ml:6px; --tab-ink-mt:-1px;
 
-  /* 灰层参数（可调） */
-  --mask-bg: rgba(15,23,42,.24);   /* 背景暗度（建议 0.18~0.32） */
-  --mask-blur: 8px;                /* 模糊半径（建议 6~10px） */
-  --mask-saturate: 1.1;            /* 饱和度微调（可选） */
+  /* 模糊强度：保持淡淡效果 */
+  --mask-blur: 8px;
+  --mask-saturate: 1.0; /* 不改变色彩饱和度，防止“加色”的观感 */
 }
 
 /* 页签 Ink（滑动圆角线） */
@@ -55,26 +54,45 @@
   z-index:4; pointer-events:none; opacity:1;
 }
 
-/* 壳层“单一灰层”：ChatGPT 风格模糊 + 轻度变暗；默认不接收事件 */
+/* 壳层“单一灰层”：仅透明模糊（不叠加任何颜色） */
 .shell-mask{
   position:fixed; inset:0; width:100vw; height:100vh;
-  background:var(--mask-bg);
+  background: transparent; /* 不加颜色 */
   -webkit-backdrop-filter: saturate(var(--mask-saturate)) blur(var(--mask-blur));
   backdrop-filter:         saturate(var(--mask-saturate)) blur(var(--mask-blur));
-  opacity:0; pointer-events:none; transition:opacity .2s ease;
+  opacity:0; pointer-events:none; transition:opacity .18s ease;
   z-index:${Z_SHELL_MASK};
 }
 html.mask-show .shell-mask{ opacity:1; }
-/* 当由 iframe 弹窗驱动时，需要阻止点击穿透壳层背景 */
-html.mask-mode--module .shell-mask{ pointer-events:auto; }
-/* 当由壳层弹窗驱动时，仅做背景模糊，不拦截（让壳层弹窗自身遮罩拦截） */
-html.mask-mode--shell .shell-mask{ pointer-events:none; }
 
-/* 业务 iframe 层级：默认低于灰层；由仲裁决定是否临时抬高 */
-.tabrow .tab-wrap .tabcard .tabpanel iframe{
-  position:relative; z-index:${Z_IFRAME_NORM}; border:0; width:100%;
+/* 仲裁模式：
+ * - module：灰层需拦截壳层背景；同时只提升 #tabCard/#tabPanel/iframe 到灰层之上，tabs 仍被冻结
+ * - shell ：灰层仅做模糊，不拦截；并强制把常见弹窗置于灰层之上，防止被模糊/遮挡
+ */
+html.mask-mode--module .shell-mask{ pointer-events:auto; }
+html.mask-mode--shell  .shell-mask{ pointer-events:none; }
+
+/* module 弹窗：仅提升卡片与面板（以及 iframe） */
+html.mask-mode--module #tabCard,
+html.mask-mode--module #tabPanel{
+  position: relative; z-index:${Z_IFRAME_ELEV};
 }
-html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_IFRAME_ELEV}; }
+html.mask-mode--module #tabPanel iframe{
+  position: relative; z-index:${Z_IFRAME_ELEV};
+}
+
+/* shell 弹窗：通用选择器强制置顶（高于灰层） */
+html.mask-mode--shell .modal,
+html.mask-mode--shell [role="dialog"][aria-modal="true"],
+html.mask-mode--shell dialog[open],
+html.mask-mode--shell .ant-modal-wrap,
+html.mask-mode--shell .ant-drawer-mask + .ant-drawer,  /* 部分抽屉结构 */
+html.mask-mode--shell .ant-modal-root,
+html.mask-mode--shell .el-dialog__wrapper,
+html.mask-mode--shell .layui-layer,
+html.mask-mode--shell .van-overlay + .van-popup{
+  position: relative; z-index:${Z_IFRAME_ELEV + 1000} !important;
+}
 `;
     const style = document.createElement('style');
     style.id = OLD_ID;
@@ -82,7 +100,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     document.head.appendChild(style);
   })();
 
-  // -------------------- 壳层全局“模糊灰层”节点 --------------------
+  // -------------------- 灰层节点 --------------------
   const shellMask = (function ensureMask(){
     let el = document.getElementById('shellMask');
     if(!el){
@@ -94,28 +112,30 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     return el;
   })();
 
-  // -------------------- 仲裁状态（壳层弹窗 vs 模块弹窗） --------------------
+  // -------------------- 仲裁状态 --------------------
   let state = {
     moduleBackdropActive: false, // iframe里是否有弹窗
-    shellModalActive:     false  // 壳层自身是否有弹窗
+    shellModalActive:     false  // 壳层是否有弹窗
   };
 
   function applyMaskState(){
     const doc = document.documentElement;
     const show = state.moduleBackdropActive || state.shellModalActive;
     doc.classList.toggle('mask-show', show);
-    // 先清空两种模式
+
+    // 模式切换
     doc.classList.remove('mask-mode--module','mask-mode--shell');
     if(!show){
       document.documentElement.style.overflow = '';
       return;
     }
     if(state.shellModalActive){
-      doc.classList.add('mask-mode--shell');   // 仅模糊，事件不拦截
+      // 壳层弹窗优先级更高：灰层仅做模糊，且不拦截
+      doc.classList.add('mask-mode--shell');
       document.documentElement.style.overflow = 'hidden';
       return;
     }
-    // 仅模块弹窗：模糊 + 灰层拦截壳层背景， iframe 临时抬高
+    // 仅模块弹窗：灰层拦截壳层背景，提升卡片/iframe
     doc.classList.add('mask-mode--module');
     document.documentElement.style.overflow = 'hidden';
   }
@@ -125,12 +145,12 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     applyMaskState();
   }
 
-  // -------------------- 与 iframe 联动：postMessage（来源：模块桥接脚本） --------------------
+  // -------------------- 与 iframe 联动（桥接脚本会 postMessage） --------------------
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
     if(msg && msg.type === 'shell-mask'){
       const show   = msg.action === 'show' || msg.visible === true;
-      const source = msg.source || 'module'; // 兼容旧版：默认为 module
+      const source = msg.source || 'module';
       if(source === 'module' || source === 'iframe'){
         state.moduleBackdropActive = !!show;
         applyMaskState();
@@ -138,14 +158,15 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     }
   });
 
-  // -------------------- 监听“壳层自身弹窗”可见性（统一仲裁） --------------------
+  // -------------------- 监听壳层弹窗（更强选择器覆盖） --------------------
   const SHELL_MODAL_SELECTORS = [
-    '.modal',                          // 自研/演示
-    'dialog[aria-modal="true"]',       // 原生
-    '.ant-modal-wrap', '.ant-drawer-mask', '.ant-modal-root',
-    '.el-overlay', '.el-dialog__wrapper',
-    '.layui-layer-shade', '.layui-layer',
-    '.van-overlay'
+    '.modal',
+    'dialog[aria-modal="true"]',
+    '[role="dialog"][aria-modal="true"]',
+    '.ant-modal-wrap', '.ant-modal-root', '.ant-drawer-mask + .ant-drawer',
+    '.el-dialog__wrapper',
+    '.layui-layer',
+    '.van-overlay + .van-popup'
   ];
   function isVisible(el){
     if(!el || !el.ownerDocument) return false;
@@ -159,6 +180,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
       const list = document.querySelectorAll(sel);
       for(const el of list){ if(isVisible(el)) return true; }
     }
+    // 兜底：role=dialog 但未标 aria-modal
     const extra = document.querySelectorAll('[role="dialog"]');
     for(const el of extra){ if(isVisible(el)) return true; }
     return false;
@@ -174,17 +196,17 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     childList:true, subtree:true, attributes:true,
     attributeFilter:['style','class','open','hidden','aria-hidden']
   });
-  // 首次计算
+  // 启动时先算一次
   state.shellModalActive = anyShellModalVisible();
   applyMaskState();
 
-  // -------------------- 导航/页签（与演示一致） --------------------
-  const SCHEMA_VERSION = 4;
-  const STORAGE_KEY    = 'NAV_STATE_V4';
-  let items = [];             // L1 列表（含 children）
-  let lockedPath    = '/';    // 当前 L1 path
-  let lockedSubHref = '';     // 当前 L2 href
-  let lockedTabHref = '';     // 当前 L3 href
+  // -------------------- 导航与页签（与演示文件一致） --------------------
+  const SCHEMA_VERSION = 5;
+  const STORAGE_KEY    = 'NAV_STATE_V5';
+  let items = [];
+  let lockedPath    = '/';
+  let lockedSubHref = '';
+  let lockedTabHref = '';
 
   function saveState(){
     try{
@@ -265,7 +287,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
       ink.style.transition = 'none';
       ink.style.width = width + 'px';
       ink.style.transform = `translateX(${left}px)`;
-      void ink.offsetWidth; // 强制回流
+      void ink.offsetWidth;
       ink.style.transition = prev || '';
     }else{
       ink.style.width = width + 'px';
@@ -274,7 +296,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
   }
   window.addEventListener('resize', ()=> positionTabInk(tabsEl?.querySelector('.tab.active'), false));
 
-  // 默认项选取（支持 YAML/后端 nav 的 default:true）
+  // 默认项选取
   function getCurrentL1(){ return items.find(x=>x.path===lockedPath) || items[0] || null; }
   function getCurrentL2(){
     const l1 = getCurrentL1(); if(!l1) return null;
@@ -293,7 +315,8 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
 
   // 渲染 L1/L2/L3
   function renderL1(){
-    track.querySelectorAll('a.link').forEach(x=>x.remove());
+    const trackEl = track;
+    trackEl.querySelectorAll('a.link').forEach(x=>x.remove());
     (items||[]).forEach(it=>{
       const a=document.createElement('a');
       a.className = 'link' + (it.path===lockedPath?' active':'');
@@ -311,10 +334,10 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
 
         renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
         movePillToEl(a);
-        hideMaskAll(); // 切换时兜底关闭灰层
+        hideMaskAll(); // 切换兜底收起灰层
         if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
-      track.appendChild(a);
+      trackEl.appendChild(a);
     });
     requestAnimationFrame(()=> movePillToL1Path(lockedPath));
   }
@@ -379,7 +402,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     row.style.minHeight=(textH+5)+'px';
   }
 
-  // 载入业务内容（iframe 放在页签下面）
+  // 业务内容：使 iframe 正好出现在页签下面
   function loadTabContent(href){
     if(!href){ tabPanel.innerHTML=''; return; }
     tabPanel.innerHTML = '';
@@ -390,7 +413,6 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
     iframe.setAttribute('scrolling','auto');
     tabPanel.appendChild(iframe);
 
-    // 高度自适应
     const fit = ()=>{
       const top = tabPanel.getBoundingClientRect().top;
       const h = Math.max(120, Math.floor(window.innerHeight - top - 12));
@@ -426,7 +448,7 @@ html.mask-mode--module .tabrow .tab-wrap .tabcard .tabpanel iframe{ z-index:${Z_
 
   async function bootstrap(){
     if(!USE_REAL_NAV){
-      // 演示/本地联调（与演示结构一致）
+      // 演示/本地联调
       items = [{
         level:1, title:'物流', path:'/logistics', visible:true, children:[
           { level:2, title:'物流渠道', path:'/logistics/channel', visible:true, default:true, children:[
