@@ -153,7 +153,7 @@
         </div>
       </div>
     `;
-    document.body.appendChild(root);
+    var __host = document.getElementById('tabPanel') || document.body; __host.appendChild(root);
     return root;
   }
 
@@ -469,5 +469,6 @@
   }
 
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
+  try{ window.__minipost_mount_logistics_custom = init; }catch(e){}
 
 })();

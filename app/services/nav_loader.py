@@ -173,7 +173,13 @@ def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
                         row["template"] = it["template"].strip()
                     if isinstance(it.get("icon"), str):
                         row["icon"] = it["icon"].strip()
-                    bucket.append(row)
+                    # 透传更多 YAML 字段（mount/js/css/call/container/host/mode/default 等）
+            for k, v in it.items():
+                if k in ("key","text","href","order"): 
+                    continue
+                # 保留简单可序列化字段
+                row[k] = v
+            bucket.append(row)
                 _dedupe_by_key(bucket, "key"); _dedupe_by_key(bucket, "href"); _sorted_inplace(bucket)
 
         stats["modules"] += 1
