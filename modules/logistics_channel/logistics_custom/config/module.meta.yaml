@@ -12,8 +12,8 @@ module:
     templates:
       - modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
     static:
-      - modules/logistics_channel/logistics_custom/frontend/static/logistics_channel.css
-      - modules/logistics_channel/logistics_custom/frontend/static/logistics_channel.js
+      - modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css
+      - modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
   permissions:
     - logistics.view
     - logistics.custom.view
