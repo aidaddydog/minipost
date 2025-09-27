@@ -664,7 +664,7 @@ const tabsEl   = document.getElementById('tabs');
         // 兼容多种返回结构：{data: [...] } 或直接 [...]
         const items = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : []));
         // 仅取 level==1
-        L1 = items.filter(it => (it && (it.level === 1 || it.level === '1') && it.visible !== false))
+        L1 = items.filter(it => (it && it.visible !== false))
                   .sort((a,b)=> (a.order||0) - (b.order||0));
       }catch(e){
         // 聚合失败则空壳
