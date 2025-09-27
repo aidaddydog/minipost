@@ -126,15 +126,10 @@ def _write_cache_safe(nav: Dict[str, Any]) -> None:
         CACHE_DIR.mkdir(parents=True, exist_ok=True)
         CACHE_FILE.write_text(json.dumps(nav, ensure_ascii=False, indent=2), encoding="utf-8")
     except Exception:
-        # 日志系统里可加 warning；这里静默跳过
         pass
 
 def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
-    """
-    生成聚合导航：
-    - 递归扫描 modules/**/config
-    - 按新 Schema 校验并聚合
-    """
+    """生成聚合导航：递归扫描 + 新 Schema 校验并聚合"""
     menu: Dict[str, List[dict]] = {}
     tabs: Dict[str, List[dict]] = {}
     stats = {"modules": 0, "menus": 0, "tabs": 0}

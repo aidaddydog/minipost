@@ -8,7 +8,6 @@
 """
 import os, sys, json, time, traceback
 
-# 将仓库根目录加入 sys.path（本文件位于 repo/scripts/validate_modules.py）
 BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if BASE_DIR not in sys.path:
     sys.path.insert(0, BASE_DIR)
