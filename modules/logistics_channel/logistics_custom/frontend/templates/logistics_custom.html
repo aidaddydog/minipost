@@ -4,14 +4,19 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>自定义物流</title>
-  <!-- 主题 tokens（仅 :root 变量） -->
+
+  <!-- 主题 tokens（仅 :root 变量；与演示一致） -->
   <link rel="preload" as="style" href="/modules/_themes/default/root.css" onload="this.rel='stylesheet'">
   <noscript><link rel="stylesheet" href="/modules/_themes/default/root.css"></noscript>
-  <!-- 本模块样式（作用域 #logistics-custom-app；页面骨架由 JS 渲染） -->
+
+  <!-- 本模块样式 -->
   <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css" />
 </head>
 <body>
-  <!-- 页面骨架与交互由 logistics_custom.js 的 ensureRoot() 自动创建，无需模板内写任何 DOM -->
+  <!-- 业务脚本（你现有的逻辑） -->
   <script src="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js"></script>
+
+  <!-- 新增：与壳层“全屏蒙层”联动（仅处理弹窗开关，无业务侵入） -->
+  <script src="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom_mask_bridge.js"></script>
 </body>
 </html>
