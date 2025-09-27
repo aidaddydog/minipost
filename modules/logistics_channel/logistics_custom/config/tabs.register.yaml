@@ -4,14 +4,5 @@
     text: 自定义物流
     href: /logistics/channel/custom
     order: 60
-    default: true   # 可选：作为该 L2 的默认 L3
-    mount:
-      mode: inline  # inline（默认）| iframe
-      css:
-        - /modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css
-        # 兼容老文件名（若存在）：/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom..css
-      js:
-        - /modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
-      call: __minipost_mount_logistics_custom
-      container: '<div id="logistics-custom-app"></div>'  # 可选，若模块会自己 ensureRoot() 也可以不写
-      host: '#tabPanel'  # 可选，默认就是 #tabPanel
+    # 建议写上模板路径（相对仓库根的模板文件）
+    template: modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html

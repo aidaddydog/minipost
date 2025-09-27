@@ -92,39 +92,3 @@ body.nav-shell {
 
 /* L3 内容内嵌框 */
 .tabpanel__frame{ width:100%; min-height: calc(100vh - var(--tab-frame-offset, 240px)); border:0; background:#fff; display:block; }
-
-/* inline panel basics */
-.toolbar{
-  background: var(--filter-card-bg, #f6f6f6);
-  border-radius: var(--filter-card-radius, 16px);
-  padding: var(--filter-card-py, 12px) var(--filter-card-px, 12px);
-  margin: var(--filter-card-mt, 0) 0 var(--filter-card-mb, 0);
-  display:flex; flex-wrap:wrap; gap:12px; align-items:center;
-  font-family: var(--filter-card-font-family, inherit);
-  font-size: var(--filter-card-font-size, 12px);
-  line-height: var(--filter-card-line-height, 1.6);
-}
-.toolbar-left{ display:flex; flex-wrap:wrap; gap:12px; align-items:center; }
-.toolbar-actions{ margin-left:auto; display:flex; align-items:center; gap:12px; }
-.btn{
-  height: var(--btn-h, 28px); min-width: var(--btn-minw, 50px);
-  border-radius: var(--btn-radius, 999px); border: var(--btn-border-width, 1px) solid var(--ctl-border, #d1d5db);
-  background: var(--ctl-bg, #fff); color: var(--ctl-ink, #111827); padding: 0 var(--btn-px, 14px);
-  display:inline-flex; align-items:center; gap:8px; cursor:pointer; text-decoration:none; user-select:none;
-  font-size: var(--btn-font-size, 12px);
-}
-.btn--black{ background: var(--btn-black-bg, #0a0a0a); color: var(--btn-black-ink, #fff); border-color: var(--btn-black-bg, #0a0a0a); }
-.btn-link{ appearance:none; border:0; background:transparent; padding:0; cursor:pointer; color:#111827; text-decoration:none; font:inherit; }
-.btn-link:hover{ text-decoration: underline; }
-.input{
-  height: var(--input-h, 28px); min-width: var(--input-minw, 60px); width: var(--input-w, auto);
-  border-radius: var(--input-radius, 999px); border: var(--input-border-width, 1px) solid var(--ctl-border, #d1d5db);
-  background: var(--ctl-bg, #fff); color: var(--ctl-ink, #111827); padding: 0 var(--ctl-px, 12px);
-  font-size: var(--ctl-font-size, 12px);
-}
-.input--search{ width: var(--input-search-w, 160px); }
-.table-wrap{ margin: var(--table-wrap-mt, 12px) 0 var(--table-wrap-mb, 40px); background: var(--table-wrap-bg, transparent); border-radius: var(--table-wrap-radius, 8px); }
-.table-scroll{ max-height: var(--table-max-h, 100%); overflow: auto; padding-right: 8px; }
-.table{ width:100%; border-collapse: collapse; border-spacing:0; background: transparent; font-family: var(--table-font-family, inherit); }
-.table th, .table td{ padding: 10px; text-align:left; font-size: var(--table-font-size, 12px); color: var(--table-ink, #111827); border-bottom: 1px solid var(--table-line, #e5e7eb); background: var(--table-row-bg, #fff); }
-.table thead th{ color: var(--table-head-ink, #6b7280); font-weight: 500; background: var(--table-head-bg, #fff); position: sticky; top: 0; z-index: 1; }
