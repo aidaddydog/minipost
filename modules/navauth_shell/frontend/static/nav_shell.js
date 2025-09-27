@@ -1,303 +1,254 @@
-/* 壳层交互与动效（仅导航壳，不含业务） */
+/* modules/navauth_shell/frontend/static/nav_shell.js
+ * 壳层交互（L1/L2/L3） + “页签下方加载业务页面” 的最小实现
+ * 目标：
+ *  1) 从 /api/nav 获取 L1/L2/L3（含 default 字段）
+ *  2) 依据 YAML 的 default 与本地记忆自动定位默认 L2 与默认 L3
+ *  3) 点击 L3 时，把对应 href 以 <iframe> 的方式嵌入到 #tabPanel（页签下面）
+ *  4) 移除“占位”文本，不再闪现“此处为业务模块内容占位。”
+ *  5) 胶囊滑块（L1）最小动效
+ */
 (function(){
-  const body = document.body;
+  const body    = document.body;
   const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true');
 
-  // DOM 引用
-  const track = document.getElementById('navTrack');
-  const pill  = document.getElementById('pill');
-  const subRow   = document.getElementById('subRow');
-  const subInner = document.getElementById('subInner');
-  const tabsEl   = document.getElementById('tabs');
-  const tabCard  = document.getElementById('tabCard');
-  const tabPanel = document.getElementById('tabPanel');
+  // DOM
+  const track   = document.getElementById('navTrack');
+  const pill    = document.getElementById('pill');
+  const subInner= document.getElementById('subInner');
+  const tabsEl  = document.getElementById('tabs');
+  const tabCard = document.getElementById('tabCard');
+  const tabPanel= document.getElementById('tabPanel');
 
-  // === Inline L3 content loader (embed into tabPanel instead of full-page navigation) ===
-  function ensureTabFrame(){
-    let frame = tabPanel.querySelector('iframe.tabpanel__frame');
-    if(!frame){
-      frame = document.createElement('iframe');
-      frame.className = 'tabpanel__frame';
-      frame.setAttribute('frameborder', '0');
-      frame.setAttribute('referrerpolicy', 'no-referrer-when-downgrade');
-      frame.style.width = '100%';
-      frame.style.border = '0';
-      frame.style.minHeight = 'calc(100vh - 220px)'; // 简易适配，可按需在 CSS 中调整 --tab-frame-offset
-      tabPanel.innerHTML = '';
-      tabPanel.appendChild(frame);
-    }
-    return frame;
+  // 状态持久化
+  const SCHEMA_VERSION = 2;
+  const STORAGE_KEY    = 'NAV_STATE_V2';
+
+  let items = [];   // L1 数组
+  let lockedPath = '/';         // L1 当前 path（如 /logistics）
+  let lockedSubHref = '';       // L2 当前 href（如 /logistics/channel）
+  let lockedTabHref = '';       // L3 当前 href（如 /logistics/channel/custom）
+
+  // =============== 工具 ===============
+  const $ = (s, el=document)=> el.querySelector(s);
+  function saveState(){
+    try{
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ v:SCHEMA_VERSION, lockedPath, lockedSubHref, lockedTabHref, ts: Date.now() }));
+    }catch(e){}
   }
-  function loadTabContent(href){
-    if(!href) return;
-    const frame = ensureTabFrame();
-    if(frame.getAttribute('src') !== href){
-      frame.setAttribute('src', href);
-    }
+  function restoreState(){
+    try{
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if(!raw) return;
+      const o = JSON.parse(raw);
+      if(o && o.v === SCHEMA_VERSION){
+        lockedPath    = o.lockedPath    || lockedPath;
+        lockedSubHref = o.lockedSubHref || lockedSubHref;
+        lockedTabHref = o.lockedTabHref || lockedTabHref;
+      }
+    }catch(e){}
   }
-
-  // 状态
-  let L1 = []; // [{title, path, children: L2[]}]
-  let lockedPath = '';
-  let lockedSubHref = '';
-  let lockedTabHref = '';
-  let hoverPath = '';
-  let inSubRow = false;
-  let leaveTimer = null;
-
-  // 工具
-  const cssVarNum = (name, fallback=0)=>{
+  function cssVarNum(name, fallback=0){
     const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
     if(!v) return fallback;
     const n = parseFloat(v);
     return Number.isFinite(n) ? n : fallback;
-  };
+  }
 
-  // 胶囊移动
-  let _pillRAF = 0, _pillNext = null;
+  // 胶囊滑块（L1）
+  let _pillRAF=0, _pillNext=null;
   function movePillToEl(el){
     if(!el) return;
     const left = el.offsetLeft - track.scrollLeft;
-    const minw = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--pill-minw')) || 60;
-    const width = Math.max(minw, el.offsetWidth);
+    const minw = cssVarNum('--pill-minw', 60);
+    const width= Math.max(minw, el.offsetWidth);
     _pillNext = { left, width };
-    if (_pillRAF) return;
+    if(_pillRAF) return;
     _pillRAF = requestAnimationFrame(()=>{
-      _pillRAF = 0;
+      _pillRAF=0;
       if(!_pillNext) return;
       pill.style.width = _pillNext.width + 'px';
       pill.style.transform = `translate(${_pillNext.left}px,-50%)`;
       pill.style.opacity = 1;
-      _pillNext = null;
+      _pillNext=null;
     });
   }
-
-  function highlightActive(){
-    [...track.querySelectorAll('.link')].forEach(a=>a.classList.toggle('active', a.dataset.path === lockedPath));
+  function movePillToL1Path(path){
+    const a = [...track.querySelectorAll('a.link')].find(x=>x.dataset.path===path);
+    movePillToEl(a);
   }
+  track.addEventListener('scroll', ()=> movePillToL1Path(lockedPath));
 
-  /* 渲染 L1 / L2 / L3 —— 仅使用通用字段：title/path/children/visible/order */
+  // =============== 渲染 ===============
   function renderL1(){
-    track.querySelectorAll('a.link').forEach(a=>a.remove());
-    const frag = document.createDocumentFragment();
-    L1.forEach(item=>{
-      if(item.visible === false) return;
-      const a = document.createElement('a');
-      a.className = 'link';
-      a.textContent = item.title || item.path || '';
-      a.href = item.path || '#';
-      a.dataset.path = item.path || '';
-      a.addEventListener('pointerenter',()=>{
-        if(inSubRow) return;
-        hoverPath = a.dataset.path;
-        movePillToEl(a);
-        renderSubPreview(hoverPath);
-      });
+    // 清空旧项目（保留 pill）
+    [...track.querySelectorAll('a.link')].forEach(x=>x.remove());
+
+    items.forEach(it=>{
+      const a=document.createElement('a');
+      a.className='link' + (it.path===lockedPath?' active':'');
+      a.dataset.path = it.path;
+      a.href = it.path;
+      a.textContent = it.title || it.path;
       a.addEventListener('click', (e)=>{
-        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); // 壳层静态预览不跳转
-        lockedPath = a.dataset.path;
-        const firstSub = ((item.children||[]).find(s=>s.visible!==false)) || null;
-        lockedSubHref = firstSub ? (firstSub.path||'') : '';
-        lockedTabHref = '';
-        // 状态落盘
-        try{ localStorage.setItem('NAV_STATE_V11', JSON.stringify({v:11, lockedPath, lockedSubHref, lockedTabHref, ts:Date.now()})); }catch(e){}
-        hoverPath = lockedPath;
-        highlightActive();
-        renderSub(lockedPath);
-        if(lockedSubHref){ const L3 = ((item.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false); const first = (L3[0] && L3[0].path) || ''; if(first) loadTabContent(first); }
+        if(USE_REAL_NAV) return; // 真实导航时允许整页跳转
+        e.preventDefault();
+        lockedPath = it.path;
+        const l1 = getCurrentL1();
+        const sub = pickDefaultL2(l1);
+        lockedSubHref = sub ? sub.path : '';
+        const tab = pickDefaultL3(sub);
+        lockedTabHref = tab ? tab.path : '';
+        saveState();
+        renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
+        movePillToEl(a);
       });
-      frag.appendChild(a);
+      track.appendChild(a);
     });
-    track.appendChild(frag);
 
-    // 初始定位
-    const first = track.querySelector(`.link[data-path="${lockedPath}"]`) || track.querySelector('.link');
-    movePillToEl(first);
-    highlightActive();
+    // 首次定位
+    requestAnimationFrame(()=> movePillToL1Path(lockedPath));
   }
 
-  function findL1(path){ return L1.find(i=>i.path===path); }
-
-  function renderSub(path){
-    const l1 = findL1(path);
-    const list = (l1 && Array.isArray(l1.children)) ? l1.children.filter(s=>s.visible!==false) : [];
-    subInner.innerHTML = list.map(i=>`<a class="sub" data-owner="${path}" href="${i.path||'#'}">${i.title||i.path||''}</a>`).join('');
-    updateSubRowMinHeight();
-
-    if(lockedSubHref && list.some(x=>x.path===lockedSubHref)){
-      const t = [...subInner.querySelectorAll('.sub')].find(a=>a.getAttribute('href')===lockedSubHref);
-      if(t) t.classList.add('active');
-    }
-
-    // 渲染 L3 tabs
-    const currentSub = list.find(s=>s.path===lockedSubHref);
-    const L3 = (currentSub && Array.isArray(currentSub.children)) ? currentSub.children.filter(t=>t.visible!==false) : [];
-    renderTabs(L3);
-  }
-
-  function renderSubPreview(path){
-    const l1 = findL1(path);
-    const list = (l1 && Array.isArray(l1.children)) ? l1.children.filter(s=>s.visible!==false) : [];
-    subInner.innerHTML = list.map(i=>`<a class="sub" data-owner="${path}" href="${i.path||'#'}">${i.title||i.path||''}</a>`).join('');
-  }
-
-  function ensureTabInk(){
-    let ink = document.getElementById('tabInk');
-    if(!ink){
-      ink = document.createElement('span');
-      ink.id = 'tabInk';
-      ink.className = 'tab-ink';
-      tabsEl.appendChild(ink);
-    }
-    return ink;
-  }
-
-  function positionTabInk(activeTabEl=null, animate=false){
-    const ink = ensureTabInk();
-    const a = activeTabEl || tabsEl.querySelector('.tab.active');
-    if(!a){ ink.style.width='0px'; return; }
-
-    const txt = a.querySelector('.tab__text') || a;
-    const rect = txt.getBoundingClientRect();
-    const tabsRect = tabsEl.getBoundingClientRect();
-    const padX = cssVarNum('--tab-ink-pad-x', -8);
-    const ml   = cssVarNum('--tab-ink-ml', 6);
-
-    const left  = Math.round(rect.left - tabsRect.left + ml);
-    const width = Math.max(2, Math.round(rect.width + padX*2));
-
-    if(!animate){
-      const prev = ink.style.transition;
-      ink.style.transition = 'none';
-      ink.style.width = width + 'px';
-      ink.style.transform = `translateX(${left}px)`;
-      void ink.offsetWidth;
-      ink.style.transition = prev || '';
-    }else{
-      ink.style.width = width + 'px';
-      ink.style.transform = `translateX(${left}px)`;
-    }
-  }
-
-  function renderTabs(L3){
-    if(!L3.length){
-      tabsEl.innerHTML = '';
-      ensureTabInk();
-      tabCard.classList.add('no-tabs');
-      tabPanel.textContent = '该二级暂无页签内容。';
-      return;
-    }
-    if(!lockedTabHref || !L3.some(t=>t.path===lockedTabHref)){
-      lockedTabHref = (L3[0].path || '');
-    }
-    tabsEl.innerHTML = L3.map(t =>
-      `<a class="tab ${t.path===lockedTabHref?'active':''}" data-key="${t.tabKey||''}" href="${t.path||'#'}"><span class="tab__text">${t.title||t.path||''}</span></a>`
+  function renderSub(){
+    const l1 = getCurrentL1();
+    const subs = (l1 && l1.children || []).filter(s=>s.visible!==false);
+    subInner.innerHTML = subs.map(s=>
+      `<a class="sub ${s.path===lockedSubHref?'active':''}" data-href="${s.path}" href="${s.path}">${s.title||s.path}</a>`
     ).join('');
-    ensureTabInk();
+    subInner.querySelectorAll('a.sub').forEach(a=>{
+      a.addEventListener('click',(e)=>{
+        if(USE_REAL_NAV) return;
+        e.preventDefault();
+        lockedSubHref = a.dataset.href || '';
+        const sub = getCurrentL2();
+        const tab = pickDefaultL3(sub);
+        lockedTabHref = tab ? tab.path : '';
+        saveState();
+        // 视觉
+        subInner.querySelectorAll('a.sub').forEach(x=>x.classList.remove('active')); a.classList.add('active');
+        renderTabs(); loadTabContent(lockedTabHref);
+      });
+    });
+    updateSubRowMinHeight();
+  }
+
+  function renderTabs(){
+    const sub = getCurrentL2();
+    const tabs = (sub && sub.children || []).filter(t=>t.visible!==false);
+    tabsEl.innerHTML = tabs.map(t=>
+      `<a class="tab ${t.path===lockedTabHref?'active':''}" data-href="${t.path}" href="${t.path}"><span class="tab__text">${t.title||t.path}</span></a>`
+    ).join('');
+    tabsEl.querySelectorAll('a.tab').forEach(a=>{
+      a.addEventListener('click', (e)=>{
+        if(USE_REAL_NAV) return;
+        e.preventDefault();
+        lockedTabHref = a.dataset.href || '';
+        tabsEl.querySelectorAll('a.tab').forEach(x=>x.classList.remove('active')); a.classList.add('active');
+        saveState();
+        loadTabContent(lockedTabHref);
+      });
+    });
+    // 有页签 → 卡片上移到 tabs 下方
     tabCard.classList.remove('no-tabs');
-    // 自动加载当前激活的 L3 内容
-    if(lockedTabHref){ loadTabContent(lockedTabHref); }
-    // 初次或刷新时载入当前激活 tab 的内容
-    if(lockedTabHref){ loadTabContent(lockedTabHref); }
-    tabPanel.textContent = '此处为业务模块内容占位。';
-    requestAnimationFrame(()=>positionTabInk(tabsEl.querySelector('.tab.active'), false));
   }
 
   function updateSubRowMinHeight(){
-    const textH = subInner.getBoundingClientRect().height || 0;
-    const extra = cssVarNum('--sub-extra', 5);
-    subRow.style.minHeight = (textH + extra) + 'px';
+    const textH=subInner.getBoundingClientRect().height||0;
+    const extra=5;
+    const subRow = document.getElementById('subRow');
+    if(subRow) subRow.style.minHeight=(textH+extra)+'px';
   }
 
-  // 事件绑定
-  track.addEventListener('pointerleave', ()=>{
-    clearTimeout(leaveTimer);
-    const grace = cssVarNum('--sub-grace-ms', 220);
-    leaveTimer = setTimeout(()=>{
-      if(!inSubRow){
-        hoverPath = lockedPath;
-        movePillToEl(track.querySelector(`.link[data-path="${lockedPath}"]`) || track.querySelector('.link'));
-        renderSub(lockedPath);
-      }
-    }, grace);
-  });
-  subRow.addEventListener('pointerenter', ()=>{ inSubRow = true; clearTimeout(leaveTimer); });
-  subRow.addEventListener('pointerleave', ()=>{ inSubRow = false; hoverPath = lockedPath; movePillToEl(track.querySelector(`.link[data-path="${lockedPath}"]`) || track.querySelector('.link')); renderSub(lockedPath); });
+  // =============== 选择器 ===============
+  function getCurrentL1(){
+    return items.find(x=>x.path===lockedPath) || items[0] || null;
+  }
+  function getCurrentL2(){
+    const l1 = getCurrentL1();
+    if(!l1) return null;
+    return (l1.children||[]).find(s=>s.path===lockedSubHref) || (l1.children||[])[0] || null;
+  }
+  function pickDefaultL2(l1){
+    if(!l1) return null;
+    return (l1.children||[]).find(s=>s.default && s.visible!==false)
+        || (l1.children||[]).find(s=>s.visible!==false)
+        || null;
+  }
+  function pickDefaultL3(sub){
+    if(!sub) return null;
+    return (sub.children||[]).find(t=>t.default && t.visible!==false)
+        || (sub.children||[]).find(t=>t.visible!==false)
+        || null;
+  }
 
-  subInner.addEventListener('pointerover', (e)=>{
-    const s = e.target.closest('a.sub'); if(!s) return;
-    const ownerEl = track.querySelector(`.link[data-path="${s.getAttribute('data-owner')}"]`);
-    if(ownerEl) movePillToEl(ownerEl);
-  });
+  // =============== 加载内容（关键改动） ===============
+  function loadTabContent(href){
+    if(!href){ tabPanel.innerHTML=''; return; }
+    // 不再显示任何“占位”文本，直接加载 iframe
+    tabPanel.innerHTML = '';
+    const iframe = document.createElement('iframe');
+    iframe.src = href;
+    iframe.setAttribute('title', '业务模块');
+    iframe.setAttribute('frameborder', '0');
+    iframe.setAttribute('scrolling', 'auto');
+    iframe.style.width = '100%';
+    iframe.style.border = '0';
+    tabPanel.appendChild(iframe);
 
-  subInner.addEventListener('click', (e)=>{ const a = e.target.closest('a.sub'); if(!a) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-    lockedPath = a.getAttribute('data-owner') || lockedPath;
-    lockedSubHref = a.getAttribute('href') || '';
-    lockedTabHref = '';
-    try{ localStorage.setItem('NAV_STATE_V11', JSON.stringify({v:11, lockedPath, lockedSubHref, lockedTabHref, ts:Date.now()})); }catch(e){}
-    hoverPath = lockedPath; highlightActive();
-    subInner.querySelectorAll('.sub').forEach(s=>s.classList.remove('active')); a.classList.add('active');
+    const fit = ()=>{
+      const top = tabPanel.getBoundingClientRect().top;
+      const h = Math.max(120, Math.floor(window.innerHeight - top - 12));
+      iframe.style.height = h + 'px';
+    };
+    fit();
+    window.addEventListener('resize', fit);
+    new ResizeObserver(fit).observe(tabPanel);
+  }
 
-    // 渲染 L3
-    const l1 = findL1(lockedPath);
-    const L3 = ((l1?.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false);
-    renderTabs(L3);
+  // =============== 初始化：拉取导航，然后定位默认/记忆并渲染 ===============
+  function initAfterNav(){
+    restoreState();
 
-    if(lockedSubHref){ const l1 = findL1(lockedPath); const L3 = ((l1?.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false); const first = (L3[0] && L3[0].path) || ''; if(first) loadTabContent(first); }
-  });
+    // 缺省 L1/L2/L3（优先 YAML 的 default）
+    const l1 = items.find(x=>x.path===lockedPath) || items[0] || null;
+    if(!l1){ items=[]; renderL1(); return; }
+    lockedPath = l1.path;
 
-  tabsEl.addEventListener('click', (e)=>{ const t = e.target.closest('a.tab'); if(!t) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
-    tabsEl.querySelectorAll('.tab').forEach(a=>a.classList.remove('active'));
-    t.classList.add('active');
-    lockedTabHref = t.getAttribute('href') || '';
-    try{ localStorage.setItem('NAV_STATE_V11', JSON.stringify({v:11, lockedPath, lockedSubHref, lockedTabHref, ts:Date.now()})); }catch(e){}
-    positionTabInk(t, true);
-    tabCard.classList.remove('no-tabs');
-    // 初次或刷新时载入当前激活 tab 的内容
-    if(lockedTabHref){ loadTabContent(lockedTabHref); }
-    tabPanel.textContent = '此处为业务模块内容占位。';
-    if(lockedTabHref) loadTabContent(lockedTabHref);
-  });
+    const sub = (lockedSubHref && (l1.children||[]).find(s=>s.path===lockedSubHref)) || pickDefaultL2(l1);
+    lockedSubHref = sub ? sub.path : '';
 
-  window.addEventListener('resize', ()=>{ positionTabInk(tabsEl.querySelector('.tab.active'), false); });
-  track.addEventListener('scroll', ()=>{ movePillToEl(track.querySelector(`.link[data-path="${hoverPath||lockedPath}"]`) || track.querySelector('.link')); });
+    const tab = (sub && lockedTabHref && (sub.children||[]).find(t=>t.path===lockedTabHref)) || pickDefaultL3(sub);
+    lockedTabHref = tab ? tab.path : '';
 
-  // 加载导航（聚合器 or 空壳）
-  async function loadNav(){
-    // 读本地状态（兼容迁移）
-    try{
-      let raw = localStorage.getItem('NAV_STATE_V11') || localStorage.getItem('NAV_STATE_V10');
-      if(raw){
-        const obj = JSON.parse(raw);
-        if(obj && obj.lockedPath){ lockedPath = obj.lockedPath; lockedSubHref = obj.lockedSubHref || ''; lockedTabHref = obj.lockedTabHref || ''; }
-      }
-    }catch(e){}
+    renderL1(); renderSub(); renderTabs();
+    loadTabContent(lockedTabHref);
+    movePillToL1Path(lockedPath);
+    saveState();
+  }
 
-    if(USE_REAL_NAV){
-      try{
-        const res = await fetch('/api/nav', { credentials: 'same-origin' });
-        const json = await res.json();
-        // 兼容多种返回结构：{data: [...] } 或直接 [...]
-        const items = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : []));
-        // 仅取 level==1
-        L1 = items.filter(it => (it && (it.level === 1 || it.level === '1') && it.visible !== false))
-                  .sort((a,b)=> (a.order||0) - (b.order||0));
-      }catch(e){
-        // 聚合失败则空壳
-        L1 = [];
-      }
-    }else{
-      // 空壳：不挂任何业务 L2/L3（符合本轮范围）
-      L1 = [{ title: '首页', path: '/admin', visible: true, order: 1, children: [] }];
+  async function bootstrap(){
+    if(!USE_REAL_NAV){
+      // 演示/降级：仅保留一条可运行路径，方便前端联调
+      items = [{
+        level:1, title:'物流', path:'/logistics', order:1, visible:true, children:[
+          { level:2, title:'物流渠道', path:'/logistics/channel', order:1, visible:true, default:true, children:[
+            { level:3, title:'自定义物流', path:'/logistics/channel/custom', order:60, visible:true, default:true }
+          ] }
+        ]
+      }];
+      initAfterNav();
+      return;
     }
-
-    // 默认锁定
-    if(!lockedPath){ lockedPath = L1[0]?.path || '/admin'; }
-    hoverPath = lockedPath;
-
-    renderL1();
-    renderSub(lockedPath);
+    try{
+      const res = await fetch('/api/nav', { headers:{'Accept':'application/json'} });
+      const data = await res.json();
+      items = Array.isArray(data.items) ? data.items : [];
+    }catch(e){
+      // 极端情况下用降级导航
+      items = [];
+    }
+    initAfterNav();
   }
 
-  loadNav();
+  bootstrap();
 })();
