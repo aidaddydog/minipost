@@ -4,4 +4,5 @@
     text: 自定义物流
     href: /logistics/channel/custom
     order: 60
-    icon: ""
+    # 建议写上模板路径（相对仓库根的模板文件）
+    template: modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
