@@ -1,21 +1,27 @@
 # app/services/nav_loader.py
 # -*- coding: utf-8 -*-
 """
-导航聚合器（后端）：
-- 遍历 modules/*/config/{module.meta.yaml, menu.register.yaml, tabs.register.yaml, permissions.register.yaml}
-- 过滤 enabled=false 的模块
-- 验证基础 Schema（必要字段/类型），聚合 L1→L2（menu）与 L2→L3（tabs）
-- href 去重、按 order 排序；返回统计信息，供 scripts/reload_nav.sh 打印
-- 仅依赖 PyYAML（bootstrap 已安装 python3-yaml），不额外引入 jsonschema
+导航聚合器（新 Schema，递归扫描）
+
+- 扫描：modules/**/config/{module.meta.yaml, menu.register.yaml, tabs.register.yaml}
+- 仅依赖 PyYAML
+- 结果结构：
+    {
+      "menu": { "<L1>": [{text, href, order?, icon?}, ...], ... },
+      "tabs": { "/<L2路径>": [{key, text, href, order?}, ...], ... },
+      "generated_at": ISO8601Z,
+      "hash": "sha1-16",
+      "stats": { "modules": N, "menus": M, "tabs": T }
+    }
 """
 from __future__ import annotations
 from pathlib import Path
-from typing import Dict, List, Tuple, Any
-import json, hashlib
+from typing import Dict, List, Any
 from datetime import datetime, timezone
+import json, hashlib
 
 try:
-    import yaml
+    import yaml  # type: ignore
 except Exception as e:  # pragma: no cover
     raise RuntimeError("缺少 PyYAML，请确保环境已安装 python3-yaml") from e
 
@@ -25,35 +31,53 @@ MODULES_DIR = REPO_ROOT / "modules"
 CACHE_FILE  = REPO_ROOT / "app" / ".nav-cache.json"  # 可选缓存，方便排障
 
 def _find_yaml(cfg_dir: Path, stem: str) -> Path | None:
-    """优先 .yaml，再 .yml"""
+    """在 cfg_dir 下查找指定 stem 的 .yaml/.yml 文件，优先 .yaml"""
     for ext in (".yaml", ".yml"):
         p = cfg_dir / f"{stem}{ext}"
-        if p.exists():
+        if p.exists() and p.is_file():
             return p
     return None
 
 def _load_yaml(fp: Path) -> Any:
-    data = yaml.safe_load(fp.read_text(encoding="utf-8"))
-    return data if data is not None else {}
+    """安全读取 YAML，空文件返回 None"""
+    text = fp.read_text(encoding="utf-8", errors="ignore")
+    data = yaml.safe_load(text)
+    return data
 
-def _validate_meta(meta: dict, mod_dir: Path) -> bool:
-    """返回是否 enabled；字段尽量宽松但保底校验"""
-    req = ["name", "title", "version", "api_prefix", "enabled"]
-    for k in req:
-        if k not in meta:
-            raise ValueError(f"[{mod_dir.name}] module.meta 缺少必填字段：{k}")
-    if not isinstance(meta["enabled"], bool):
-        raise ValueError(f"[{mod_dir.name}] module.meta.enabled 必须为 bool")
-    return bool(meta["enabled"])
+def _to_bool(val: Any, default: bool=True) -> bool:
+    if isinstance(val, bool):
+        return val
+    if isinstance(val, str):
+        return val.strip().lower() in ("1","true","yes","on")
+    return default
+
+def _sorted_inplace(bucket: List[dict]) -> None:
+    """按 order（默认100）和 text 排序，原地修改"""
+    for it in bucket:
+        if "order" not in it or not isinstance(it.get("order"), int):
+            it["order"] = 100
+    bucket.sort(key=lambda d: (d.get("order", 100), d.get("text","")))
+
+def _dedupe_by_key(bucket: List[dict], key: str) -> None:
+    """按给定 key 去重，保留首次出现"""
+    seen = set()
+    i = 0
+    while i < len(bucket):
+        v = bucket[i].get(key)
+        if v in seen:
+            bucket.pop(i)
+            continue
+        seen.add(v)
+        i += 1
 
 def _validate_menu(menu: dict, mod: str) -> int:
-    """menu.register.yaml 基础校验，返回计数"""
+    """menu.register.yaml 校验（新 Schema：对象映射）"""
     if not isinstance(menu, dict):
-        raise ValueError(f"[{mod}] menu.register 需为对象：l1_key -> items[]")
+        raise ValueError(f"[{mod}] menu.register 需为对象：L1 → items[]")
     count = 0
     for l1, items in menu.items():
-        if not isinstance(l1, str):
-            raise ValueError(f"[{mod}] menu.register l1 必须为字符串")
+        if not isinstance(l1, str) or not l1.strip():
+            raise ValueError(f"[{mod}] menu.register L1（键）必须为非空字符串")
         if not isinstance(items, list):
             raise ValueError(f"[{mod}] menu.register.{l1} 必须为数组")
         for it in items:
@@ -70,13 +94,13 @@ def _validate_menu(menu: dict, mod: str) -> int:
     return count
 
 def _validate_tabs(tabs: dict, mod: str) -> int:
-    """tabs.register.yaml 基础校验，返回计数"""
+    """tabs.register.yaml 校验（新 Schema：对象映射）"""
     if not isinstance(tabs, dict):
-        raise ValueError(f"[{mod}] tabs.register 必须为对象：base_path -> tabs[]")
+        raise ValueError(f"[{mod}] tabs.register 必须为对象：/base → tabs[]")
     count = 0
     for base, items in tabs.items():
         if not isinstance(base, str) or not base.startswith("/"):
-            raise ValueError(f"[{mod}] tabs.register key 必须为以 / 开头的路径")
+            raise ValueError(f"[{mod}] tabs.register key 必须为以 / 开头的路径：{base!r}")
         if not isinstance(items, list):
             raise ValueError(f"[{mod}] tabs.register.{base} 必须为数组")
         for it in items:
@@ -92,59 +116,42 @@ def _validate_tabs(tabs: dict, mod: str) -> int:
             count += 1
     return count
 
-def _dedupe_append(bucket: List[dict], row: dict, key: str) -> bool:
-    """按 key（通常是 href）去重追加；返回是否追加成功"""
-    if any(x.get(key) == row.get(key) for x in bucket):
-        return False
-    bucket.append(row)
-    return True
-
-def _sorted_inplace(bucket: List[dict]) -> None:
-    bucket.sort(key=lambda x: (x.get("order", 1000), x.get("text", "")))
-
-def rebuild_nav(write_cache: bool = False) -> dict:
+def rebuild_nav(write_cache: bool = True) -> Dict[str, Any]:
     """
-    聚合核心：扫描 modules/*/config，合成：
-    {
-      "menu": { "<l1>": [{text,href,order?,icon?}, ...], ... },
-      "tabs": { "<l2_base>": [{key,text,href,order?}, ...], ... },
-      "generated_at": ISO8601Z,
-      "hash": "sha1-16",
-      "stats": { "modules":N, "menus":M, "tabs":T }
-    }
+    生成聚合导航：
+    - 递归扫描 modules/**/config
+    - 按新 Schema 校验并聚合
     """
+    menu: Dict[str, List[dict]] = {}
+    tabs: Dict[str, List[dict]] = {}
+    stats = {"modules": 0, "menus": 0, "tabs": 0}
+
     if not MODULES_DIR.exists():
-        # 空目录也要返回结构，避免前端空指针
         now = datetime.now(timezone.utc).isoformat()
-        nav = {"menu": {}, "tabs": {}, "generated_at": now, "hash": "0"*16,
-               "stats": {"modules": 0, "menus": 0, "tabs": 0}}
+        nav = {"menu": {}, "tabs": {}, "generated_at": now, "hash": "0"*16, "stats": stats}
         if write_cache:
             CACHE_FILE.write_text(json.dumps(nav, ensure_ascii=False, indent=2), encoding="utf-8")
         return nav
 
-    stats = {"modules": 0, "menus": 0, "tabs": 0}
-    menu: Dict[str, List[dict]] = {}
-    tabs: Dict[str, List[dict]] = {}
+    # 递归找到所有 config 目录
+    cfg_dirs = sorted({p for p in MODULES_DIR.rglob("config") if p.is_dir()})
+    for cfg_dir in cfg_dirs:
+        mod_dir = cfg_dir.parent
+        mod_name = mod_dir.name
 
-    for mod_dir in sorted([p for p in MODULES_DIR.iterdir() if p.is_dir() and not p.name.startswith((".", "_"))]):
-        cfg_dir = mod_dir / "config"
-        if not cfg_dir.exists():
-            continue
-
+        # module.meta.yaml（可选）：enabled=false 则跳过
         meta_fp = _find_yaml(cfg_dir, "module.meta")
-        enabled = True
         if meta_fp:
             meta = _load_yaml(meta_fp) or {}
-            enabled = _validate_meta(meta, mod_dir)
-        if not enabled:
-            continue
+            if not _to_bool(meta.get("enabled", True), True):
+                continue
 
-        # menu.register
+        # menu.register.yaml（可选，新 Schema）
         menu_fp = _find_yaml(cfg_dir, "menu.register")
         if menu_fp:
-            m = _load_yaml(menu_fp) or {}
-            stats["menus"] += _validate_menu(m, mod_dir.name)
-            for l1, items in m.items():
+            raw = _load_yaml(menu_fp) or {}
+            stats["menus"] += _validate_menu(raw, mod_name)
+            for l1, items in (raw or {}).items():
                 bucket = menu.setdefault(l1, [])
                 for it in items:
                     row = {
@@ -152,17 +159,19 @@ def rebuild_nav(write_cache: bool = False) -> dict:
                         "href": it["href"].strip(),
                         "order": it.get("order", 100),
                     }
-                    if "icon" in it:
+                    if "icon" in it and isinstance(it["icon"], str):
                         row["icon"] = it["icon"]
-                    _dedupe_append(bucket, row, "href")
+                    bucket.append(row)
+                # 去重（按 href）并排序
+                _dedupe_by_key(bucket, "href")
                 _sorted_inplace(bucket)
 
-        # tabs.register
+        # tabs.register.yaml（可选，新 Schema）
         tabs_fp = _find_yaml(cfg_dir, "tabs.register")
         if tabs_fp:
-            t = _load_yaml(tabs_fp) or {}
-            stats["tabs"] += _validate_tabs(t, mod_dir.name)
-            for base, items in t.items():
+            raw = _load_yaml(tabs_fp) or {}
+            stats["tabs"] += _validate_tabs(raw, mod_name)
+            for base, items in (raw or {}).items():
                 bucket = tabs.setdefault(base, [])
                 for it in items:
                     row = {
@@ -171,10 +180,13 @@ def rebuild_nav(write_cache: bool = False) -> dict:
                         "href": it["href"].strip(),
                         "order": it.get("order", 100),
                     }
-                    _dedupe_append(bucket, row, "href")
+                    bucket.append(row)
+                # 去重（优先按 key，其次 href）
+                _dedupe_by_key(bucket, "key")
+                _dedupe_by_key(bucket, "href")
                 _sorted_inplace(bucket)
 
-        stats["modules"] += 1
+        stats["modules"] += 1  # 统计扫描到的 config 目录个数
 
     # 生成摘要
     now = datetime.now(timezone.utc).isoformat()
