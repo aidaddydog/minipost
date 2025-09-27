@@ -1,0 +1,8 @@
+# modules/system_settings/system_upgrade/config/tabs.register.yaml
+"/settings/system_settings":
+  - key: system_upgrade
+    text: 系统更新
+    href: /settings/system_settings/system_upgrade
+    order: 100
+    template: modules/system_settings/system_upgrade/frontend/templates/system_upgrade.html
+    default: true
