@@ -1,19 +1,6 @@
 # modules/logistics_channel/config/menu.register.yaml
-- level: 1
-  title: 物流
-  path: /logistics
-  order: 30
-  visible: true
-  children:
-    - level: 2
-      title: 物流渠道
-      path: /logistics/channel
-      order: 1
-      visible: true
-      children:
-        - level: 3
-          title: 自定义物流
-          path: /logistics/channel/custom
-          order: 60
-          visible: true
-          children: []
+物流:
+  - text: 物流渠道
+    href: /logistics/channel
+    order: 1
+    icon: ""
