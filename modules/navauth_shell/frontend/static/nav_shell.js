@@ -1,11 +1,12 @@
-/* modules/navauth_shell/frontend/static/nav_shell.js  (V5)
+/* modules/navauth_shell/frontend/static/nav_shell.js  (V6)
  * 功能总览：
  * 1) L1/L2/L3 导航与页签 Ink（滑动圆角线，与演示一致）
  * 2) “单一灰层 + 仲裁”：
- *    - ChatGPT 风格：仅透明模糊（无任何颜色叠加）
+ *    - 仅透明模糊（无颜色）
  *    - shell 弹窗：灰层在下，弹窗在上（不被模糊，可交互）
- *    - module 弹窗：仅提升 #tabCard/#tabPanel/iframe 到灰层之上，tabs 仍被灰层冻结
+ *    - module 弹窗：仅提升 #tabCard/#tabPanel/iframe 到灰层之上，tabs 仍被冻结
  * 3) 默认 L1→L2→L3：优先 {default:true}，否则取首个 visible
+ * 4) 修复：iframe 默认 300px 导致页签下内容变窄 —— 显式 width:100%
  */
 
 (function(){
@@ -19,14 +20,14 @@
   const tabCard  = document.getElementById('tabCard');
   const tabPanel = document.getElementById('tabPanel');
 
-  // -------------------- 注入样式（Ink + 透明模糊灰层 + 层级契约） --------------------
+  // -------------------- 注入样式（Ink + 透明模糊灰层 + 层级契约 + iframe 宽度修复） --------------------
   (function injectPatchCSS(){
     const OLD_ID = 'navShellPatch';
     document.getElementById(OLD_ID)?.remove();
 
     // 层级契约：壳层普通UI < 灰层(5000) < 模块卡片提升(6000) < 壳层弹窗(>=7000)
     const Z_SHELL_MASK   = 5000;
-    const Z_IFRAME_ELEV  = 6000; // 只在 module 弹窗时临时使用
+    const Z_IFRAME_ELEV  = 6000; // 仅在 module 弹窗时使用
 
     const css = `
 :root{
@@ -35,9 +36,9 @@
   --tab-ink-height:2px; --tab-ink-radius:999px; --tab-ink-color:#000;
   --tab-ink-pad-x:-8px; --tab-ink-ml:6px; --tab-ink-mt:-1px;
 
-  /* 模糊强度：保持淡淡效果 */
+  /* 模糊强度：淡淡效果（无颜色） */
   --mask-blur: 8px;
-  --mask-saturate: 1.0; /* 不改变色彩饱和度，防止“加色”的观感 */
+  --mask-saturate: 1.0;
 }
 
 /* 页签 Ink（滑动圆角线） */
@@ -54,10 +55,16 @@
   z-index:4; pointer-events:none; opacity:1;
 }
 
+/* 🚑 修复：iframe 默认 300px 导致内容“变窄” —— 显式拉满到容器宽度 */
+.tabrow .tab-wrap{ min-width:0; } /* 防止 flex 子项因 min-width:auto 产生意外挤压 */
+.tabrow .tab-wrap .tabcard .tabpanel iframe{
+  width:100%; display:block; border:0; background:transparent;
+}
+
 /* 壳层“单一灰层”：仅透明模糊（不叠加任何颜色） */
 .shell-mask{
   position:fixed; inset:0; width:100vw; height:100vh;
-  background: transparent; /* 不加颜色 */
+  background: transparent;
   -webkit-backdrop-filter: saturate(var(--mask-saturate)) blur(var(--mask-blur));
   backdrop-filter:         saturate(var(--mask-saturate)) blur(var(--mask-blur));
   opacity:0; pointer-events:none; transition:opacity .18s ease;
@@ -66,8 +73,8 @@
 html.mask-show .shell-mask{ opacity:1; }
 
 /* 仲裁模式：
- * - module：灰层需拦截壳层背景；同时只提升 #tabCard/#tabPanel/iframe 到灰层之上，tabs 仍被冻结
- * - shell ：灰层仅做模糊，不拦截；并强制把常见弹窗置于灰层之上，防止被模糊/遮挡
+ * - module：灰层需拦截壳层背景；并仅提升 #tabCard/#tabPanel/iframe 到灰层之上
+ * - shell ：灰层仅做模糊，不拦截；壳层弹窗强制置顶
  */
 html.mask-mode--module .shell-mask{ pointer-events:auto; }
 html.mask-mode--shell  .shell-mask{ pointer-events:none; }
@@ -86,7 +93,7 @@ html.mask-mode--shell .modal,
 html.mask-mode--shell [role="dialog"][aria-modal="true"],
 html.mask-mode--shell dialog[open],
 html.mask-mode--shell .ant-modal-wrap,
-html.mask-mode--shell .ant-drawer-mask + .ant-drawer,  /* 部分抽屉结构 */
+html.mask-mode--shell .ant-drawer-mask + .ant-drawer,
 html.mask-mode--shell .ant-modal-root,
 html.mask-mode--shell .el-dialog__wrapper,
 html.mask-mode--shell .layui-layer,
@@ -100,7 +107,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     document.head.appendChild(style);
   })();
 
-  // -------------------- 灰层节点 --------------------
+  // -------------------- 壳层灰层节点 --------------------
   const shellMask = (function ensureMask(){
     let el = document.getElementById('shellMask');
     if(!el){
@@ -158,7 +165,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     }
   });
 
-  // -------------------- 监听壳层弹窗（更强选择器覆盖） --------------------
+  // -------------------- 监听壳层弹窗 --------------------
   const SHELL_MODAL_SELECTORS = [
     '.modal',
     'dialog[aria-modal="true"]',
@@ -180,7 +187,6 @@ html.mask-mode--shell .van-overlay + .van-popup{
       const list = document.querySelectorAll(sel);
       for(const el of list){ if(isVisible(el)) return true; }
     }
-    // 兜底：role=dialog 但未标 aria-modal
     const extra = document.querySelectorAll('[role="dialog"]');
     for(const el of extra){ if(isVisible(el)) return true; }
     return false;
@@ -196,13 +202,12 @@ html.mask-mode--shell .van-overlay + .van-popup{
     childList:true, subtree:true, attributes:true,
     attributeFilter:['style','class','open','hidden','aria-hidden']
   });
-  // 启动时先算一次
   state.shellModalActive = anyShellModalVisible();
   applyMaskState();
 
   // -------------------- 导航与页签（与演示文件一致） --------------------
-  const SCHEMA_VERSION = 5;
-  const STORAGE_KEY    = 'NAV_STATE_V5';
+  const SCHEMA_VERSION = 6;
+  const STORAGE_KEY    = 'NAV_STATE_V6';
   let items = [];
   let lockedPath    = '/';
   let lockedSubHref = '';
@@ -296,7 +301,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
   }
   window.addEventListener('resize', ()=> positionTabInk(tabsEl?.querySelector('.tab.active'), false));
 
-  // 默认项选取
+  // 默认项选取（支持 YAML/后端 nav 的 default:true）
   function getCurrentL1(){ return items.find(x=>x.path===lockedPath) || items[0] || null; }
   function getCurrentL2(){
     const l1 = getCurrentL1(); if(!l1) return null;
@@ -315,8 +320,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
   // 渲染 L1/L2/L3
   function renderL1(){
-    const trackEl = track;
-    trackEl.querySelectorAll('a.link').forEach(x=>x.remove());
+    track.querySelectorAll('a.link').forEach(x=>x.remove());
     (items||[]).forEach(it=>{
       const a=document.createElement('a');
       a.className = 'link' + (it.path===lockedPath?' active':'');
@@ -337,7 +341,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
         hideMaskAll(); // 切换兜底收起灰层
         if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
-      trackEl.appendChild(a);
+      track.appendChild(a);
     });
     requestAnimationFrame(()=> movePillToL1Path(lockedPath));
   }
@@ -402,7 +406,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     row.style.minHeight=(textH+5)+'px';
   }
 
-  // 业务内容：使 iframe 正好出现在页签下面
+  // 业务内容：iframe 出现在页签下面，并自适应视窗高度
   function loadTabContent(href){
     if(!href){ tabPanel.innerHTML=''; return; }
     tabPanel.innerHTML = '';
@@ -411,6 +415,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     iframe.title = '业务模块';
     iframe.setAttribute('frameborder','0');
     iframe.setAttribute('scrolling','auto');
+    // 宽度依赖上方 CSS：.tabpanel iframe{ width:100%; display:block; }
     tabPanel.appendChild(iframe);
 
     const fit = ()=>{
