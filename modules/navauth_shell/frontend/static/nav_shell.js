@@ -94,7 +94,7 @@
         renderSubPreview(hoverPath);
       });
       a.addEventListener('click', (e)=>{
-        if(!USE_REAL_NAV) e.preventDefault(); // 壳层静态预览不跳转
+        e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation(); // 壳层静态预览不跳转
         lockedPath = a.dataset.path;
         const firstSub = ((item.children||[]).find(s=>s.visible!==false)) || null;
         lockedSubHref = firstSub ? (firstSub.path||'') : '';
@@ -104,7 +104,7 @@
         hoverPath = lockedPath;
         highlightActive();
         renderSub(lockedPath);
-        if(USE_REAL_NAV && lockedSubHref){ window.location.href = lockedSubHref; }
+        if(lockedSubHref){ const L3 = ((item.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false); const first = (L3[0] && L3[0].path) || ''; if(first) loadTabContent(first); }
       });
       frag.appendChild(a);
     });
@@ -195,6 +195,8 @@
     ).join('');
     ensureTabInk();
     tabCard.classList.remove('no-tabs');
+    // 自动加载当前激活的 L3 内容
+    if(lockedTabHref){ loadTabContent(lockedTabHref); }
     // 初次或刷新时载入当前激活 tab 的内容
     if(lockedTabHref){ loadTabContent(lockedTabHref); }
     tabPanel.textContent = '此处为业务模块内容占位。';
@@ -228,9 +230,7 @@
     if(ownerEl) movePillToEl(ownerEl);
   });
 
-  subInner.addEventListener('click', (e)=>{
-    const a = e.target.closest('a.sub'); if(!a) return;
-    if(!USE_REAL_NAV) e.preventDefault();
+  subInner.addEventListener('click', (e)=>{ const a = e.target.closest('a.sub'); if(!a) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     lockedPath = a.getAttribute('data-owner') || lockedPath;
     lockedSubHref = a.getAttribute('href') || '';
     lockedTabHref = '';
@@ -246,9 +246,7 @@
     if(lockedSubHref){ const l1 = findL1(lockedPath); const L3 = ((l1?.children||[]).find(s=>s.path===lockedSubHref)?.children||[]).filter(t=>t.visible!==false); const first = (L3[0] && L3[0].path) || ''; if(first) loadTabContent(first); }
   });
 
-  tabsEl.addEventListener('click', (e)=>{
-    const t = e.target.closest('a.tab'); if(!t) return;
-    if(!USE_REAL_NAV) e.preventDefault();
+  tabsEl.addEventListener('click', (e)=>{ const t = e.target.closest('a.tab'); if(!t) return; e.preventDefault(); e.stopPropagation(); e.stopImmediatePropagation();
     tabsEl.querySelectorAll('.tab').forEach(a=>a.classList.remove('active'));
     t.classList.add('active');
     lockedTabHref = t.getAttribute('href') || '';
