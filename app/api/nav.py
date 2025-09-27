@@ -1,9 +1,9 @@
-# app/api/nav.py
+# app/api/v1/nav.py
 # -*- coding: utf-8 -*-
-from fastapi import APIRouter
+from fastapi import APIRouter, Query
 from app.services.nav_loader import rebuild_nav
 
-router = APIRouter()
+router = APIRouter(prefix="/api", tags=["nav"])
 
 def _l1_path_from_l2_list(l2_list):
     """
@@ -16,12 +16,12 @@ def _l1_path_from_l2_list(l2_list):
     segs = [s for s in href.split("/") if s]
     return f"/{segs[0]}" if segs else "/"
 
-@router.get("/api/nav", summary="聚合导航（兼容老前端）")
-def api_nav():
+@router.get("/nav")
+def get_nav():
     """
     返回结构（兼容老前端 + 暴露新结构）：
     {
-      "items": [  # 老前端期望的数组结构（level/title/path/children/visible/order）
+      "items": [  # 老前端期望的数组结构
         {
           "level": 1, "title": "<L1名>", "path": "/<L1基路径>", "order": 10, "visible": true,
           "children": [
@@ -91,3 +91,8 @@ def api_nav():
         **nav
     }
 
+@router.post("/nav/reload")
+def reload_nav(force: bool = Query(default=True)):
+    # 继续保留旧的 reload 接口行为（如果你有外部调用）
+    from app.common.utils import refresh_nav_cache
+    return refresh_nav_cache()
