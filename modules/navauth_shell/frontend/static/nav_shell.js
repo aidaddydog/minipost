@@ -670,7 +670,15 @@ const tabsEl   = document.getElementById('tabs');
         const res = await fetch('/api/nav', { credentials:'include' });
         const json = await res.json();
         // 兼容多种返回结构：{data: [...] } 或直接 [...]
-        const items = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : []));
+        let items = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : []));
+        if((!items || !items.length) && json && json.menu){
+          items = Object.entries(json.menu).map(([title, l2list], idx)=>{
+            const first = (Array.isArray(l2list) && l2list[0] && typeof l2list[0].href==='string') ? l2list[0].href : '/';
+            const seg = first.replace(/^\/+/,'').split('/')[0] || '';
+            return { title, path: ('/'+seg), order: 100+idx, visible: true, children: (Array.isArray(l2list)? l2list.map(x=>({title:x.text||x.title||'', path:x.href||''})):[]) };
+          });
+        }
+
         // 仅取 level==1
         L1 = items.filter(it => (it && it.visible !== false))
                   .sort((a,b)=> (a.order||0) - (b.order||0));
@@ -683,8 +691,15 @@ const tabsEl   = document.getElementById('tabs');
       L1 = [{ title: '首页', path: '/admin', visible: true, order: 1, children: [] }];
     }
 
-    // 默认锁定
-    if(!lockedPath){ lockedPath = L1[0]?.path || '/admin'; }
+    // 默认锁定：若本地状态为空，取第一个 L1 或从 SUBMAP 导出
+    if(!lockedPath){
+      if(items && items.length){ lockedPath = items[0].path || '/'; }
+      else{
+        const subKeys = Object.keys(SUBMAP||{});
+        if(subKeys.length){ lockedPath = subKeys[0]; }
+        else { lockedPath = '/'; }
+      }
+    }
     hoverPath = lockedPath;
 
     renderL1();
