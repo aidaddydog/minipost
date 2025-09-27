@@ -67,8 +67,16 @@ function deriveSpecFromHref(href){
 
 function buildMapsFromNav(nav){
   SUBMAP = {}; TABMAP = {}; DEFAULT_TAB_BY_SUB = {};
-  const items = Array.isArray(nav?.items) ? nav.items : [];
+  let items = Array.isArray(nav?.items) ? nav.items : [];
   const tabsObj = nav?.tabs || {};
+  // fallback: derive items from menu
+  if((!items || !items.length) && nav && nav.menu){
+    items = Object.entries(nav.menu).map(([title, l2list], idx)=>{
+      const first = (Array.isArray(l2list) && l2list[0] && typeof l2list[0].href==='string') ? l2list[0].href : '/';
+      const seg = first.replace(/^\/+/,'').split('/')[0] || '';
+      return { title, path: ('/'+seg), order: 100+idx, visible: true, children: (Array.isArray(l2list)? l2list.map(x=>({title:x.text||x.title||'', path:x.href||''})):[]) };
+    });
+  }
   // L1/L2 -> SUBMAP
   for(const L1 of items){
     const l1path = L1?.path || '';
@@ -657,9 +665,9 @@ const tabsEl   = document.getElementById('tabs');
       }
     }catch(e){}
 
-    if(USE_REAL_NAV){
+    {
       try{
-        const res = await fetch('/api/nav', { credentials: 'same-origin' });
+        const res = await fetch('/api/nav', { credentials:'include' });
         const json = await res.json();
         // 兼容多种返回结构：{data: [...] } 或直接 [...]
         const items = Array.isArray(json) ? json : (Array.isArray(json?.data) ? json.data : (Array.isArray(json?.items) ? json.items : []));
