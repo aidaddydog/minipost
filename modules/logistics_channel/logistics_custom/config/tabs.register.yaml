@@ -1,6 +1,7 @@
-logistics:
-  - text: "自定义物流"
-    href: "/logistics/channel/custom"
+# modules/logistics_channel/logistics_custom/config/tabs.register.yaml
+"/logistics/channel":
+  - key: custom
+    text: 自定义物流
+    href: /logistics/channel/custom
     order: 60
     icon: ""
-
