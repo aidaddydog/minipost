@@ -40,29 +40,37 @@ app.include_router(login_router)
 app.include_router(rbac_router)
 
 # ===== 自动 include 全部模块后端路由（一次性实现，之后新增模块无需改全局） =====
+# app/main.py（节选）——替换 _auto_include_module_routers() 的实现
+from pathlib import Path
+import importlib.util
+import traceback
+import logging
+
+logger = logging.getLogger("minipost")
+
 def _auto_include_module_routers():
     base = Path("modules")
-    if not base.exists(): return
-    # 排除已手动 include 的
+    if not base.exists(): 
+        return
     skip = {
         str(Path("modules/auth_login/backend/routers/auth_login.py")),
         str(Path("modules/core/backend/routers/rbac_admin.py")),
     }
     for fp in sorted(base.rglob("backend/routers/*.py")):
         rel = str(fp)
-        if rel in skip: 
+        if rel in skip:
             continue
-        # 动态加载该 .py 文件并 include 其中的 `router`
         try:
             spec = importlib.util.spec_from_file_location(f"mod_router__{fp.stem}", str(fp))
-            mod = importlib.util.module_from_spec(spec)
             assert spec and spec.loader
+            mod = importlib.util.module_from_spec(spec)
             spec.loader.exec_module(mod)
             r = getattr(mod, "router", None)
             if r is not None:
                 app.include_router(r)
         except Exception:
-            # 出错忽略，不阻塞主流程；模块自行修复其路由文件即可
+            # 以 WARNING 级别打印出错模块与栈信息，避免“静默失败”
+            logger.warning("Auto-include router failed: %s\n%s", rel, traceback.format_exc())
             continue
 
 _auto_include_module_routers()
