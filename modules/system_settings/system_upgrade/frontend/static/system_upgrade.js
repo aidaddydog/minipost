@@ -1,4 +1,4 @@
-/* Build: sys-upgrade patched v3 (async fix) | 2025-09-28 */
+/* Build: sys-upgrade patched v5 (modal hidden + mask hide) | 2025-09-28 */
 console.info('[SysUpgrade] patched build v2 loaded');
 /* --- PATCH: fixed HTML-escape helper h() to avoid syntax error --- */
 /* modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
@@ -15,6 +15,8 @@ console.info('[SysUpgrade] patched build v2 loaded');
 (function(){
   const ROOT = document.getElementById('system-upgrade-app');
   const API_BASE = '/api/settings/system_settings/system_upgrade';
+  function _hideShellMask(){ try{ window.parent && window.parent.postMessage({type:'shell-mask', action:'hide', source:'module'}, '*'); }catch(e){} }
+
 
   // 工具
   const $ = (sel, el=document) => el.querySelector(sel);
@@ -124,7 +126,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
         </div>
       </div>
 
-      <div class="modal" id="settingsModal" role="dialog" aria-modal="true">
+      <div class="modal" style="display:none" id="settingsModal" role="dialog" aria-modal="true">
         <div class="box" tabindex="-1">
           <h3 style="margin:0 0 10px;">更新设置</h3>
           <div style="color:#374151;">
@@ -139,7 +141,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
         </div>
       </div>
 
-      <div class="modal" id="logModal" role="dialog" aria-modal="true">
+      <div class="modal" style="display:none" id="logModal" role="dialog" aria-modal="true">
         <div class="box" tabindex="-1">
           <h3 style="margin:0 0 10px;">更新日志</h3>
           <textarea id="logText" readonly style="height:240px;"></textarea>
@@ -226,7 +228,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
 
   // 弹窗 & 壳层模糊联动（由 mask_bridge.js 接管整页灰层；此处仅开关自身可交互）
   function openModal(m){ m.style.display='flex'; document.documentElement.style.overflow='hidden'; }
-  function closeModal(m){ m.style.display='none'; document.documentElement.style.overflow=''; }
+  function closeModal(m){ m.style.display='none'; document.documentElement.style.overflow=''; _hideShellMask(); }
 
   // 用户偏好
   function saveSettings(){
@@ -270,6 +272,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
   (async function init(){
     // 先渲染骨架，避免白屏
     render();
+  _hideShellMask();
     try { await loadBranches(); } catch(_){}
     render();
     loadPref();

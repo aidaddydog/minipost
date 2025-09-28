@@ -49,3 +49,19 @@
 .cselect .menu a:hover{ background:#f9fafb }
 .cselect .menu a[aria-selected="true"]{ background:#f3f4f6; font-weight:600; }
 .sr-select{ position:absolute; inset:0; width:0; height:0; opacity:0; pointer-events:none; }
+
+/* --- PATCH: ensure module modals are hidden by default (avoid initial shell blur) --- */
+.modal{
+  display: none;
+  position: fixed; inset: 0;
+  align-items: center; justify-content: center;
+  z-index: 200;
+  background: transparent; /* module uses shell blur, no dark overlay */
+}
+.modal .box{
+  background: var(--page-bg, #fff);
+  border-radius: var(--card-radius, 10px);
+  padding: 16px;
+  min-width: 420px;
+  box-shadow: var(--modal-shadow, 0 15px 35px rgba(0,0,0,.12));
+}
