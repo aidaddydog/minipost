@@ -809,3 +809,178 @@ window.shellModal = window.shellModal || shellModal;
     try{ var shellModal = window.shellModal; }catch(_){}
   }
 })();
+/* === nav_shell.js 末尾“强力弹窗补丁”（覆盖原安全垫） === */
+(function(){
+  // 1) 始终注入高优先级样式（不依赖是否新建 root）
+  function ensureModalCSS(){
+    var id = 'shellModalStyleForce';
+    var st = document.getElementById(id);
+    if(st) return;
+    st = document.createElement('style');
+    st.id = id;
+    st.textContent = [
+      // 在 shell 模式下，强制把壳层弹窗压到最上（高于任意 7000 !important）
+      'html.mask-mode--shell #shellModalRoot,',
+      'html.mask-mode--shell .shell-modal{ z-index:9999 !important; }',
+
+      // 基础外层容器
+      '.shell-modal{ position:fixed; inset:0; display:none !important; align-items:center; justify-content:center; }',
+      '.shell-modal[aria-hidden="false"]{ display:flex !important; }',
+
+      // 遮罩、对话框、标题、关闭
+      '.shell-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.28); }',
+      '.shell-modal__dialog{ position:relative; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.2);',
+      '  width:min(920px,92vw); max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }',
+      '.shell-modal__header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(0,0,0,.06); }',
+      '.shell-modal__title{ font-size:16px; margin:0; }',
+      '.shell-modal__close{ border:0; background:transparent; font-size:20px; line-height:1; cursor:pointer; }',
+      '.shell-modal__body{ position:relative; padding:0; }',
+      '.shell-modal__body iframe{ display:block; width:100%; border:0; background:transparent; min-height:60vh; }',
+
+      // 尺寸（可选）
+      '.shell-modal.is-sm .shell-modal__dialog{ width:min(520px,92vw); }',
+      '.shell-modal.is-lg .shell-modal__dialog{ width:min(1080px,94vw); }',
+      '.shell-modal.is-full .shell-modal__dialog{ width:96vw; height:92vh; }'
+    ].join('\n');
+    document.head.appendChild(st);
+  }
+
+  // 2) 确保 root 存在（若 nav_shell.html 里已有，则复用）
+  function ensureModalRoot(){
+    var root = document.getElementById('shellModalRoot');
+    if(!root){
+      root = document.createElement('div');
+      // 注意：保留 .modal 以兼容旧选择器，但我们有更高优先级的 .shell-modal 规则覆盖它
+      root.id = 'shellModalRoot';
+      root.className = 'shell-modal modal';
+      root.setAttribute('role','dialog');
+      root.setAttribute('aria-modal','true');
+      root.setAttribute('aria-hidden','true');
+      root.innerHTML =
+        '<div class="shell-modal__backdrop" data-close="1" aria-hidden="true"></div>'+
+        '<div class="shell-modal__dialog" role="document">'+
+        '  <div class="shell-modal__header">'+
+        '    <h3 id="shellModalTitle" class="shell-modal__title">—</h3>'+
+        '    <button class="shell-modal__close" title="关闭" aria-label="关闭" data-close="1">×</button>'+
+        '  </div>'+
+        '  <div class="shell-modal__body"><iframe id="shellModalIframe" title="模块弹窗"></iframe></div>'+
+        '</div>';
+      document.body.appendChild(root);
+    }
+    ensureModalCSS();
+
+    // 一次性绑定关闭
+    if(!root.__boundClose){
+      root.__boundClose = true;
+      root.addEventListener('click', function(e){
+        var t = e.target;
+        if(t && t.getAttribute && t.getAttribute('data-close') === '1'){
+          api.close();
+        }
+      });
+    }
+    return root;
+  }
+
+  // 3) 弹窗 API（全局）
+  var api = {
+    open: function(cfg){
+      cfg = cfg || {};
+      var root = ensureModalRoot();
+      var titleEl = root.querySelector('#shellModalTitle');
+      var iframe  = root.querySelector('#shellModalIframe');
+      // 尺寸
+      root.classList.remove('is-sm','is-md','is-lg','is-full');
+      var size = (cfg.size || 'md').toLowerCase();
+      root.classList.add('is-' + (['sm','md','lg','full'].indexOf(size) >= 0 ? size : 'md'));
+      // 标题 & iframe
+      if(titleEl) titleEl.textContent = cfg.title || '弹窗';
+      if(iframe)  iframe.src = cfg.url || 'about:blank';
+      // 显示
+      root.style.zIndex = '9999'; // 兜底（真正生效的是上面的 !important 规则）
+      root.setAttribute('aria-hidden','false');
+
+      // 灰层联动（若壳层已有这两个函数/状态，将其置为 shell 模式）
+      try{
+        if(window.state) window.state.shellModalActive = true;
+        if(typeof window.applyMaskState === 'function') window.applyMaskState();
+        document.documentElement.classList.add('mask-mode--shell','mask-show');
+      }catch(e){}
+      // 关闭回传事件名
+      root.dataset.onCloseEmit = (cfg.onClose && cfg.onClose.emit) ? String(cfg.onClose.emit) : '';
+    },
+
+    update: function(cfg){
+      cfg = cfg || {};
+      var root    = document.getElementById('shellModalRoot'); if(!root) return;
+      var titleEl = root.querySelector('#shellModalTitle');
+      if(typeof cfg.title === 'string' && titleEl){ titleEl.textContent = cfg.title; }
+      if(cfg.size){
+        root.classList.remove('is-sm','is-md','is-lg','is-full');
+        var s = String(cfg.size).toLowerCase();
+        root.classList.add('is-' + (['sm','md','lg','full'].indexOf(s) >= 0 ? s : 'md'));
+      }
+    },
+
+    close: function(payload){
+      var root   = document.getElementById('shellModalRoot'); if(!root) return;
+      var iframe = root.querySelector('#shellModalIframe');
+      // 回传给业务 iframe
+      try{
+        var emit = root.dataset.onCloseEmit || '';
+        var panelIF = document.querySelector('#tabPanel iframe');
+        if(panelIF && panelIF.contentWindow){
+          panelIF.contentWindow.postMessage({ type: emit || 'shell-modal-closed', payload: payload || null }, '*');
+        }
+      }catch(e){}
+      // 隐藏
+      if(iframe) iframe.src = 'about:blank';
+      root.setAttribute('aria-hidden','true');
+      try{
+        if(window.state) window.state.shellModalActive = false;
+        if(typeof window.applyMaskState === 'function') window.applyMaskState();
+      }catch(e){}
+    },
+
+    forwardResult: function(data){
+      try{
+        var panelIF = document.querySelector('#tabPanel iframe');
+        if(panelIF && panelIF.contentWindow){
+          panelIF.contentWindow.postMessage({ type:'shell-modal-result', scope:data && data.scope, action:data && data.action, data:data && data.data }, '*');
+        }
+      }catch(e){}
+    }
+  };
+
+  // 4) 总是导出到全局
+  window.shellModal = window.shellModal || api;
+
+  // 5) 附加一个健壮的消息监听（不替换现有监听，防止上游失效）
+  window.addEventListener('message', function(e){
+    var msg = (e && e.data) || {};
+    if(!msg || typeof msg !== 'object') return;
+
+    try{
+      if(msg.type === 'open-shell-modal'){
+        var p = msg.payload || {};
+        window.shellModal.open({ title:p.title, url:p.url, size:p.size||'md', onCloseEmit: p.onClose && p.onClose.emit });
+        return;
+      }
+      if(msg.type === 'update-shell-modal'){
+        window.shellModal.update(msg.payload || {});
+        return;
+      }
+      if(msg.type === 'close-shell-modal'){
+        window.shellModal.close(msg.payload || null);
+        return;
+      }
+      if(msg.type === 'shell-modal-result'){
+        window.shellModal.forwardResult({ scope: msg.scope, action: msg.action, data: msg.data || {} });
+        return;
+      }
+    }catch(err){
+      // 不让外层抛出中断
+      console.error('[shellModal listener error]', err);
+    }
+  }, true); // capture: true，尽早兜底
+})();
