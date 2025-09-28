@@ -12,10 +12,11 @@
 (function(){
   // -------------------- DOM --------------------
   const body     = document.body;
-  const USE_REAL_NAV = (body.getAttribute('data-use-real-nav') === 'true');
+  const USE_REAL_NAV = false; // 强制：点击只激活/切换，不跳外链
   const track    = document.getElementById('navTrack');
   const pill     = document.getElementById('pill');
   const subInner = document.getElementById('subInner');
+  const subRow  = document.getElementById('subRow');
   const tabsEl   = document.getElementById('tabs');
   const tabCard  = document.getElementById('tabCard');
   const tabPanel = document.getElementById('tabPanel');
@@ -328,7 +329,8 @@ html.mask-mode--shell .van-overlay + .van-popup{
       a.href  = it.path;
       a.textContent = it.title || it.path;
       a.addEventListener('click',(e)=>{
-        e.preventDefault();lockedPath = it.path;
+        if(!USE_REAL_NAV) e.preventDefault();
+        lockedPath = it.path;
         const l2 = getCurrentL2();
         lockedSubHref = l2 ? l2.path : '';
         const l3 = getCurrentL3();
@@ -338,7 +340,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
         renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
         movePillToEl(a);
         hideMaskAll(); // 切换兜底收起灰层
-        /* 外链跳转已禁用：点击仅激活/切换，不导航 */
+        if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
       track.appendChild(a);
     });
@@ -354,7 +356,8 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
     subInner.querySelectorAll('a.sub').forEach(a=>{
       a.addEventListener('click',(e)=>{
-        e.preventDefault();lockedSubHref = a.dataset.href || '';
+        if(!USE_REAL_NAV) e.preventDefault();
+        lockedSubHref = a.dataset.href || '';
         const l3 = getCurrentL3();
         lockedTabHref = l3 ? l3.path : '';
         saveState();
@@ -363,7 +366,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
         a.classList.add('active');
         renderTabs(); loadTabContent(lockedTabHref);
         hideMaskAll();
-        /* 外链跳转已禁用：点击仅激活/切换，不导航 */
+        if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
     });
     updateSubRowMinHeight();
@@ -381,14 +384,15 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
     tabsEl.querySelectorAll('a.tab').forEach(a=>{
       a.addEventListener('click',(e)=>{
-        e.preventDefault();lockedTabHref = a.dataset.href || '';
+        if(!USE_REAL_NAV) e.preventDefault();
+        lockedTabHref = a.dataset.href || '';
         tabsEl.querySelectorAll('.tab').forEach(x=>x.classList.remove('active'));
         a.classList.add('active');
         saveState();
         positionTabInk(a, true);
         loadTabContent(lockedTabHref);
         hideMaskAll();
-        /* 外链跳转已禁用：点击仅激活/切换，不导航 */
+        if(USE_REAL_NAV && lockedTabHref) window.location.href = lockedTabHref;
       });
     });
 
@@ -441,6 +445,9 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
     renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
     movePillToL1Path(lockedPath);
+    // 鼠标离开 L1/L2 时：让胶囊以动画滑回锁定项（保持过渡，不瞬移）
+    if (track) track.addEventListener('pointerleave', ()=> movePillToL1Path(lockedPath));
+    if (subRow) subRow.addEventListener('pointerleave', ()=> movePillToL1Path(lockedPath));
     saveState();
 
     window.addEventListener('resize', ()=>{
