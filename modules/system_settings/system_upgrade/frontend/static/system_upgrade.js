@@ -1,3 +1,4 @@
+/* --- PATCH: fixed HTML-escape helper h() to avoid syntax error --- */
 /* modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
  * 简约 UI，复用壳层 Token：toolbar / btn / input / select / table-wrap / footer-bar / cselect / modal
  * API 约定（模拟优先，容器具备 git 时自动走真实模式）
