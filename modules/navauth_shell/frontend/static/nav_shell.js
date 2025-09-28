@@ -183,10 +183,62 @@ html.mask-mode--shell .van-overlay + .van-popup{
       }
     }
   });
+  // Hook: 记录 moduleBackdropActive 时间戳并启动 watchdog
+  (function(){
+    let watchdogTimer = 0; let tsShow = 0;
+    function startWatch(){
+      if(watchdogTimer) return;
+      watchdogTimer = setInterval(()=>{
+        try{
+          const ifr = document.querySelector('#tabPanel iframe');
+          if(!ifr || !ifr.contentDocument){ return; }
+          const doc = ifr.contentDocument;
+          const selectors = [
+            '.modal.open',
+            '.modal[aria-modal="true"]:not([aria-hidden="true"])',
+            'dialog[open]',
+            '[role="dialog"][aria-modal="true"]:not([aria-hidden="true"])',
+            '.ant-modal-wrap','.ant-modal-root','.el-overlay','.layui-layer','.layui-layer-shade','.van-overlay','.van-overlay + .van-popup',
+            '#moduleBlurMask','.module-blur-mask'
+          ].join(',');
+          let anyVisible = false;
+          doc.querySelectorAll(selectors).forEach(el=>{
+            const st = ifr.contentWindow.getComputedStyle(el);
+            const r = el.getBoundingClientRect();
+            if(st && st.display!=='none' && st.visibility!=='hidden' && parseFloat(st.opacity||'1')>0 && r.width>0 && r.height>0){
+              anyVisible = true;
+            }
+          });
+          if(state.moduleBackdropActive){
+            if(!tsShow) tsShow = Date.now();
+            if(!anyVisible && (Date.now() - tsShow > 5000)){
+              console.warn('[nav_shell] auto-cleared stuck mask (no overlay found in iframe).');
+              state.moduleBackdropActive = false;
+              applyMaskState();
+              tsShow = 0;
+            }
+          }else{
+            tsShow = 0;
+          }
+        }catch(e){ /* ignore cross-origin */ }
+      }, 1000);
+    }
+    // 在收到 module 的 show 时开启监控；在 hide 或 shell 模态时会自然关闭
+    window.addEventListener('message', (e)=>{
+      const msg = e?.data || {};
+      if(msg && msg.type==='shell-mask'){
+        const show = msg.action==='show' || msg.visible===true;
+        const source = msg.source || 'module';
+        if(source==='module' || source==='iframe'){
+          if(show){ startWatch(); }
+        }
+      }
+    });
+  })();
+
 
   // -------------------- 监听壳层弹窗 --------------------
   const SHELL_MODAL_SELECTORS = [
-    '.modal',
     'dialog[aria-modal="true"]',
     '[role="dialog"][aria-modal="true"]',
     '.ant-modal-wrap', '.ant-modal-root', '.ant-drawer-mask + .ant-drawer',
