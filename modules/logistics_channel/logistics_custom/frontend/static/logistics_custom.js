@@ -1,44 +1,65 @@
 /* modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
- * 自定义物流 · 前端（稳定实现）
+ * 自定义物流 · 前端（稳定实现 + API 前缀自动回退）
  * - 构建页面骨架（toolbar/table/pager）
- * - 调用后端 API 渲染列表、分页
+ * - 调用后端 API 渲染列表、分页（支持 /api /api/v1 /v1/api 回退）
  * - “新增/重命名/删除”走壳层统一弹窗（ShellAPI）
  */
 (function(){
   const ROOT_ID = 'logistics-custom-app';
 
-  // ---- API ----
+  /* ---------- API 前缀自动回退 ---------- */
+  const API_BASES = Array.isArray(window.__API_BASES__) && window.__API_BASES__.length
+    ? window.__API_BASES__
+    : (window.__API_BASE__ ? [String(window.__API_BASE__)] : ['/api','/api/v1','/v1/api']);
+
+  function buildURL(base, path, params){
+    const q = params ? '?' + new URLSearchParams(params) : '';
+    return (base.replace(/\/+$/,'') + '/' + path.replace(/^\/+/, '') + q);
+  }
+
+  async function request(method, path, { params=null, json=null }={}){
+    let lastErr = null;
+    for(const base of API_BASES){
+      const url = buildURL(base, path, params);
+      try{
+        const res = await fetch(url, {
+          method,
+          headers: { 'Content-Type':'application/json' },
+          body: json ? JSON.stringify(json) : null
+        });
+        const txt = await res.text();
+        let data = {};
+        try{ data = txt ? JSON.parse(txt) : {}; }catch(e){ data = { errors:[{ message:'Invalid JSON' }] }; }
+
+        if(res.status === 404){
+          // 尝试下一个前缀
+          lastErr = new Error(`[404] ${url}`);
+          continue;
+        }
+        if(!res.ok){
+          const msg = (data && data.errors ? data.errors.map(e=>e.message).join('; ') : '') || (res.status+' '+res.statusText);
+          throw new Error(msg);
+        }
+        return data;
+      }catch(err){
+        lastErr = err;
+      }
+    }
+    throw lastErr || new Error('All API bases failed');
+  }
+
   const API = {
-    list:   (params)=> `/api/logistics/custom?${new URLSearchParams(params)}`,
-    create: () => `/api/logistics/custom`,
-    update: (id)=> `/api/logistics/custom/${encodeURIComponent(id)}`,
-    history:(id)=> `/api/logistics/custom/${encodeURIComponent(id)}/history`
+    list:   (params)=> request('GET',  '/logistics/custom', { params }),
+    create: (body)=>   request('POST', '/logistics/custom', { json: body }),
+    update: (id,body)=>request('PUT',  `/logistics/custom/${encodeURIComponent(id)}`, { json: body }),
+    history:(id)=>     request('GET',  `/logistics/custom/${encodeURIComponent(id)}/history`)
   };
 
-  // ---- 状态 ----
-  const state = {
-    kw: '',
-    page: 1,
-    page_size: 10,
-    total: 0,
-    list: []
-  };
-
-  // ---- 工具 ----
+  /* ---------- 状态 & 工具 ---------- */
+  const state = { kw:'', page:1, page_size:10, total:0, list:[] };
   const $  = (sel, el=document)=> el.querySelector(sel);
   const $$ = (sel, el=document)=> Array.from(el.querySelectorAll(sel));
   const esc = (s)=> String(s==null? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
-  async function fetchJSON(url, opt={}){
-    const res = await fetch(url, Object.assign({ headers:{'Content-Type':'application/json'} }, opt));
-    const txt = await res.text();
-    let data = {};
-    try{ data = txt ? JSON.parse(txt) : {}; }catch(e){ data = { errors:[{ message:'Invalid JSON' }] }; }
-    if(!res.ok){
-      const msg = (data && data.errors ? data.errors.map(e=>e.message).join('; ') : '') || (res.status+' '+res.statusText);
-      throw new Error(msg);
-    }
-    return data;
-  }
   function toast(msg, ok=true){
     let t = $('#lgx-toast');
     if(!t){ t = document.createElement('div'); t.id='lgx-toast'; document.body.appendChild(t); }
@@ -48,7 +69,7 @@
     t._tid = setTimeout(()=>{ t.style.opacity='0'; }, 1800);
   }
 
-  // ---- DOM 构建 ----
+  /* ---------- DOM 构建 ---------- */
   function ensureRoot(){
     let root = document.getElementById(ROOT_ID);
     if(root) return root;
@@ -94,7 +115,7 @@
     return root;
   }
 
-  // ---- 渲染逻辑 ----
+  /* ---------- 渲染 ---------- */
   function renderList(){
     const tbody = $('#tbody');
     const empty = $('#empty');
@@ -132,8 +153,7 @@
   }
 
   async function loadList(){
-    const params = { kw: state.kw, page: state.page, page_size: state.page_size };
-    const data = await fetchJSON(API.list(params));
+    const data = await API.list({ kw: state.kw, page: state.page, page_size: state.page_size });
     const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
     const pagination = data?.pagination || {};
     state.list = list;
@@ -166,7 +186,7 @@
       </table>`;
   }
 
-  // ---- 事件绑定 ----
+  /* ---------- 事件 ---------- */
   function bindToolbar(){
     const kwInput = $('#kwInput');
     $('#btnSearch').addEventListener('click', ()=>{ state.kw = kwInput.value.trim(); state.page=1; refresh(); });
@@ -178,7 +198,11 @@
       if(state.page < totalPage){ state.page++; refresh(); }
     });
     $('#btnNew').addEventListener('click', ()=>{
-      ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules_static/logistics_channel/logistics_custom/frontend/templates/modals/new.html' });
+      ShellAPI.openModal({
+        title:'新增自定义物流',
+        size:'md',
+        url:'/modules_static/logistics_channel/logistics_custom/frontend/templates/modals/new.html'
+      });
     });
   }
 
@@ -201,17 +225,19 @@
     });
   }
 
-  // ---- 刷新 ----
+  /* ---------- 刷新 ---------- */
   async function refresh(){
     try{
       await loadList();
       renderList();
     }catch(err){
       toast(err.message||'加载失败', false);
+      // 便于排障：在控制台打印当前使用的 API_BASES
+      console.warn('[logistics_custom] API_BASES =', API_BASES);
     }
   }
 
-  // ---- 初始化 ----
+  /* ---------- 初始化 ---------- */
   function init(){
     ensureRoot();
     bindToolbar();
@@ -220,7 +246,7 @@
   }
   if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init, { once:true }); } else { init(); }
 
-  // ---- 弹窗结果回传：刷新列表 ----
+  /* ---------- 弹窗结果回传：刷新列表 ---------- */
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
     if(msg.type==='shell-modal-result' && msg.scope==='logistics_custom'){
