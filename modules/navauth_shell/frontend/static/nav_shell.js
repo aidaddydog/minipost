@@ -171,7 +171,90 @@ html.mask-mode--shell .van-overlay + .van-popup{
     applyMaskState();
   }
 
-  // -------------------- 与 iframe 联动（桥接脚本会 postMessage） --------------------
+  
+  // -------------------- 壳层统一弹窗（屏幕级，支持 iframe 承载） --------------------
+  const shellModal = (function(){
+    let root=null, titleEl=null, iframe=null;
+
+    function ensure(){
+      if(root) return;
+      root = document.getElementById('shellModalRoot');
+      if(!root){
+        root = document.createElement('div');
+        root.id = 'shellModalRoot';
+        root.className = 'shell-modal modal';
+        root.setAttribute('role','dialog');
+        root.setAttribute('aria-modal','true');
+        root.setAttribute('aria-hidden','true');
+        root.innerHTML = `
+          <div class="shell-modal__backdrop" data-close="1" aria-hidden="true"></div>
+          <div class="shell-modal__dialog" role="document">
+            <div class="shell-modal__header">
+              <h3 id="shellModalTitle" class="shell-modal__title">—</h3>
+              <button class="shell-modal__close" title="关闭" aria-label="关闭" data-close="1">×</button>
+            </div>
+            <div class="shell-modal__body">
+              <iframe id="shellModalIframe" title="模块弹窗"></iframe>
+            </div>
+          </div>`;
+        document.body.appendChild(root);
+      }
+      titleEl = root.querySelector('#shellModalTitle');
+      iframe  = root.querySelector('#shellModalIframe');
+      root.addEventListener('click', (e)=>{ if(e.target?.dataset?.close==='1'){ api.close(); } });
+    }
+
+    function setSize(size){
+      root.classList.remove('is-sm','is-md','is-lg','is-full');
+      const s = (size||'md').toLowerCase();
+      root.classList.add('is-' + (['sm','md','lg','full'].includes(s)?s:'md'));
+    }
+
+    const api = {
+      open({ title='弹窗', url='', size='md', onCloseEmit=null }={}){
+        ensure();
+        setSize(size);
+        titleEl.textContent = title || '弹窗';
+        iframe.src = url || 'about:blank';
+        root.setAttribute('aria-hidden','false');
+        // 进入 shell 模式（灰层仅做模糊，不拦截）
+        state.shellModalActive = true;
+        applyMaskState();
+        // 关闭时要回发给业务 iframe 的事件名
+        root.dataset.onCloseEmit = onCloseEmit || '';
+      },
+      update({ title, size }={}){
+        ensure();
+        if(typeof title==='string'){ titleEl.textContent = title; }
+        if(size){ setSize(size); }
+      },
+      close(payload=null){
+        ensure();
+        try{
+          const emit = root.dataset.onCloseEmit || '';
+          const panelIF = document.querySelector('#tabPanel iframe');
+          if(panelIF && panelIF.contentWindow){
+            const msg = { type: emit || 'shell-modal-closed', payload };
+            panelIF.contentWindow.postMessage(msg, '*');
+          }
+        }catch(e){ /* ignore */ }
+        iframe.src = 'about:blank';
+        root.setAttribute('aria-hidden','true');
+        state.shellModalActive = false;
+        applyMaskState();
+      },
+      forwardResult(data){
+        try{
+          const panelIF = document.querySelector('#tabPanel iframe');
+          if(panelIF && panelIF.contentWindow){
+            panelIF.contentWindow.postMessage({ type:'shell-modal-result', ...data }, '*');
+          }
+        }catch(e){ /* ignore */ }
+      }
+    };
+    return api;
+  })();
+// -------------------- 与 iframe 联动（桥接脚本会 postMessage） --------------------
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
     if(msg && msg.type === 'shell-mask'){
