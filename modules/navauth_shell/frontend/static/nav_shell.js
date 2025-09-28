@@ -707,3 +707,103 @@ html.mask-mode--shell .van-overlay + .van-popup{
       return;
     }
   });
+
+/* === nav_shell.js 末尾安全垫：全局 shellModal & 兼容旧用法 === */
+(function(){
+  function ensureShellModal(){
+    // 若页面已有壳层弹窗实现，直接复用
+    if (window.shellModal && typeof window.shellModal.open === 'function') return window.shellModal;
+
+    // 动态创建容器（如 nav_shell.html 已有 #shellModalRoot 会直接复用）
+    let root = document.getElementById('shellModalRoot');
+    if(!root){
+      root = document.createElement('div');
+      root.id = 'shellModalRoot';
+      root.className = 'shell-modal';
+      root.setAttribute('role','dialog');
+      root.setAttribute('aria-modal','true');
+      root.setAttribute('aria-hidden','true');
+      root.innerHTML = `
+        <div class="shell-modal__backdrop" data-close="1" aria-hidden="true"></div>
+        <div class="shell-modal__dialog" role="document">
+          <div class="shell-modal__header">
+            <h3 id="shellModalTitle" class="shell-modal__title">—</h3>
+            <button class="shell-modal__close" title="关闭" aria-label="关闭" data-close="1">×</button>
+          </div>
+          <div class="shell-modal__body">
+            <iframe id="shellModalIframe" title="模块弹窗"></iframe>
+          </div>
+        </div>`;
+      document.body.appendChild(root);
+      // 兜底样式（若主样式已注入，这段不会影响）
+      const style = document.createElement('style');
+      style.textContent = `
+        .shell-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index: 7001; }
+        .shell-modal[aria-hidden="false"]{ display:flex; }
+        .shell-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.28); }
+        .shell-modal__dialog{ position:relative; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.2);
+          width:min(920px,92vw); max-height:90vh; display:flex; flex-direction:column; overflow:hidden; }
+        .shell-modal__header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(0,0,0,.06); }
+        .shell-modal__title{ font-size:16px; margin:0; }
+        .shell-modal__close{ border:0; background:transparent; font-size:20px; line-height:1; cursor:pointer; }
+        .shell-modal__body{ position:relative; padding:0; }
+        .shell-modal__body iframe{ display:block; width:100%; border:0; background:transparent; min-height:60vh; }
+      `;
+      document.head.appendChild(style);
+      root.addEventListener('click', (e)=>{ if(e.target?.dataset?.close==='1'){ api.close(); } });
+    }
+    const titleEl = root.querySelector('#shellModalTitle');
+    const iframe  = root.querySelector('#shellModalIframe');
+
+    function setSize(size){
+      root.classList.remove('is-sm','is-md','is-lg','is-full');
+      const s = (size||'md').toLowerCase();
+      root.classList.add('is-' + (['sm','md','lg','full'].includes(s)?s:'md'));
+    }
+
+    const api = {
+      open({ title='弹窗', url='', size='md', onCloseEmit=null }={}){
+        setSize(size);
+        if(titleEl) titleEl.textContent = title || '弹窗';
+        if(iframe)  iframe.src = url || 'about:blank';
+        root.setAttribute('aria-hidden','false');
+        // 与壳层灰层联动（若存在）
+        try{ if(window.state){ window.state.shellModalActive = true; } if(typeof window.applyMaskState==='function'){ window.applyMaskState(); } }catch(_){}
+        root.dataset.onCloseEmit = onCloseEmit || '';
+      },
+      update({ title, size }={}){
+        if(typeof title==='string' && titleEl) titleEl.textContent = title;
+        if(size){ setSize(size); }
+      },
+      close(payload=null){
+        try{
+          const emit = root.dataset.onCloseEmit || '';
+          const panelIF = document.querySelector('#tabPanel iframe');
+          if(panelIF && panelIF.contentWindow){
+            const msg = { type: emit || 'shell-modal-closed', payload };
+            panelIF.contentWindow.postMessage(msg, '*');
+          }
+        }catch(_){}
+        if(iframe) iframe.src = 'about:blank';
+        root.setAttribute('aria-hidden','true');
+        try{ if(window.state){ window.state.shellModalActive = false; } if(typeof window.applyMaskState==='function'){ window.applyMaskState(); } }catch(_){}
+      },
+      forwardResult(data){
+        try{
+          const panelIF = document.querySelector('#tabPanel iframe');
+          if(panelIF && panelIF.contentWindow){
+            panelIF.contentWindow.postMessage({ type:'shell-modal-result', ...data }, '*');
+          }
+        }catch(_){}
+      }
+    };
+    return api;
+  }
+
+  // 确保全局对象存在
+  window.shellModal = window.shellModal || ensureShellModal();
+  // 兼容旧监听里直接用 `shellModal.*` 的写法（避免 ReferenceError）
+  if (typeof shellModal === 'undefined' && window.shellModal) {
+    try{ var shellModal = window.shellModal; }catch(_){}
+  }
+})();
