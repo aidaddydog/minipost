@@ -1,70 +1,58 @@
-/* logistics_custom.js
- * 说明：
- * - 仅前端行为与数据交互；视觉完全复用既有 Token 与基元类名（toolbar/btn/input/select/table-wrap/modal/cselect/footer-bar）
- * - 不耦合聚合逻辑，页面可通过 YAML 注册到 L1/L2/L3 后被壳层载入
- * - 搜索仅命中 provider_name / channel_name；分页；主从展开；软停用/软删除遵循接口契约
- * - transport_mode / status_common 枚举与 SSoT 对齐（express/postal/air/sea/rail/truck/multimodal/pickup/local_courier；draft/active/inactive/archived）。参见 SSoT。*/ // SSoT 引用：minipost_Field V1.1.yaml
-// 视觉 Token 与类名对齐壳层（如 --filter-card-* / --btn-* 等）。参见 nav_shell 壳层样式。 // 壳层引用：nav_shell.html
-
+/* modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
+ * 自定义物流 · 前端（简版稳定实现）
+ * - 构建页面骨架（toolbar/table/pager）
+ * - 调用后端 API 渲染列表、分页
+ * - “新增/重命名/删除”走壳层统一弹窗（ShellAPI）
+ * - 只用最基础的 DOM API，避免复杂依赖，提升稳定性
+ */
 (function(){
   const ROOT_ID = 'logistics-custom-app';
+
+  // ---- API ----
   const API = {
     list:   (params)=> `/api/logistics/custom?${new URLSearchParams(params)}`,
     create: () => `/api/logistics/custom`,
     update: (id)=> `/api/logistics/custom/${encodeURIComponent(id)}`,
-    chStatus:(id)=> `/api/logistics/custom/channels/${encodeURIComponent(id)}/status`,
-    chDelete:(id)=> `/api/logistics/custom/channels/${encodeURIComponent(id)}`,
-    addr:   () => `/api/logistics/custom/addresses`,
-    labels: () => `/api/logistics/custom/label-templates`
+    history:(id)=> `/api/logistics/custom/${encodeURIComponent(id)}/history`
   };
 
-  // 与 SSoT 保持一致的枚举（前端兜底；后端可返回也可覆盖）
-  const TRANSPORT_MODES = ['express','postal','air','sea','rail','truck','multimodal','pickup','local_courier']; // SSoT enums.transport_mode
-  const STATUS_COMMON   = ['draft','active','inactive','archived']; // SSoT enums.status_common
-
+  // ---- 状态 ----
   const state = {
     kw: '',
     page: 1,
-    page_size: 20,
+    page_size: 10,
     total: 0,
-    list: [],
-    addresses: [],
-    labelTemplates: []
+    list: []
   };
 
-  // 工具
-  const $ = (sel, el=document) => el.querySelector(sel);
-  const $$ = (sel, el=document) => Array.from(el.querySelectorAll(sel));
-  const sleep = (ms)=> new Promise(r=>setTimeout(r,ms));
-  const esc = (s)=> String(s==null?'':s).replace(/[&<>"']/g, m=>({ '&': '&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;' }[m]));
-
+  // ---- 工具 ----
+  const $  = (sel, el=document)=> el.querySelector(sel);
+  const $$ = (sel, el=document)=> Array.from(el.querySelectorAll(sel));
+  const esc = (s)=> String(s==null? '' : s).replace(/[&<>"']/g, m => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[m]));
   async function fetchJSON(url, opt={}){
-    const res = await fetch(url, Object.assign({headers:{'Content-Type':'application/json'}}, opt));
-    const text = await res.text();
-    let data;
-    try{ data = text ? JSON.parse(text) : {}; }catch(e){ data = { errors:[{message:'Invalid JSON'}] }; }
+    const res = await fetch(url, Object.assign({ headers:{'Content-Type':'application/json'} }, opt));
+    const txt = await res.text();
+    let data = {};
+    try{ data = txt ? JSON.parse(txt) : {}; }catch(e){ data = { errors:[{ message:'Invalid JSON' }] }; }
     if(!res.ok){
-      const msg = data?.errors?.map(e=>e.message).join('; ') || res.status+' '+res.statusText;
+      const msg = (data && data.errors ? data.errors.map(e=>e.message).join('; ') : '') || (res.status+' '+res.statusText);
       throw new Error(msg);
     }
     return data;
   }
-
   function toast(msg, ok=true){
-    let t = $('#lgx-toast'); if(!t){ t = document.createElement('div'); t.id='lgx-toast'; document.body.appendChild(t); }
-    Object.assign(t.style, {
-      position:'fixed', right:'14px', bottom:'14px', padding:'10px 12px', borderRadius:'10px',
-      background: ok ? '#0a0a0a' : '#b91c1c', color:'#fff', zIndex:1100, fontSize:'12px'
-    });
-    t.textContent = msg;
-    t.style.opacity = '1';
-    setTimeout(()=>{ t.style.transition='opacity .3s'; t.style.opacity='0'; }, 1400);
+    let t = $('#lgx-toast');
+    if(!t){ t = document.createElement('div'); t.id='lgx-toast'; document.body.appendChild(t); }
+    Object.assign(t.style, { position:'fixed', left:'50%', top:'12px', transform:'translateX(-50%)', padding:'8px 12px',
+      background: ok?'#0a0a0a':'#b30000', color:'#fff', borderRadius:'6px', fontSize:'12px', zIndex:2147483000 });
+    t.textContent = String(msg||''); clearTimeout(t._tid); t.style.opacity='1';
+    t._tid = setTimeout(()=>{ t.style.opacity='0'; }, 1800);
   }
 
+  // ---- DOM 构建 ----
   function ensureRoot(){
     let root = document.getElementById(ROOT_ID);
     if(root) return root;
-    // 若模板未提供，JS 自动构建页面骨架（不改全局）
     root = document.createElement('div');
     root.id = ROOT_ID;
     root.innerHTML = `
@@ -75,7 +63,7 @@
           <button id="btnReset" class="btn" aria-label="重置条件">重置</button>
         </div>
         <div class="toolbar-right">
-          <button id="btnNew" class="btn btn--black" aria-haspopup="dialog" aria-controls="dlgNew">新增自定义物流</button>
+          <button id="btnNew" class="btn btn--black">新增自定义物流</button>
         </div>
       </div>
 
@@ -87,69 +75,19 @@
               <th style="width:36px;">&nbsp;</th>
               <th>物流名称</th>
               <th>创建时间</th>
-              <th style="width: var(--col-w-op);">操作</th>
+              <th style="width: 200px;">操作</th>
             </tr>
           </thead>
           <tbody id="tbody"></tbody>
         </table>
-        <div id="empty" class="empty" style="display:none;">暂无数据</div>
+        <div id="empty" class="empty" style="display:none; padding:24px; text-align:center; color:rgba(0,0,0,.45);">暂无数据</div>
       </div>
 
       <div class="footer-bar">
         <div class="pager">
-          <button class="btn" id="prevPage" aria-label="上一页">«</button>
-          <span><span id="curPage">1</span> / <span id="totalPage">1</span></span>
-          <button class="btn" id="nextPage" aria-label="下一页">»</button>
-        </div>
-        <div class="helper">仅搜索 provider_name / channel_name；最新创建在前</div>
-      </div>
-
-      <div id="dlgNew" class="modal" role="dialog" aria-modal="true" aria-labelledby="dlgTitle" aria-hidden="true">
-        <div class="modal__dialog">
-          <h3 id="dlgTitle" class="modal__title">新增自定义物流</h3>
-          <div class="form">
-            <div class="form-row">
-              <label for="inpProvider">物流名称*</label>
-              <div class="input"><input id="inpProvider" type="text" placeholder="请输入物流名称"></div>
-            </div>
-
-            <div class="channels-head">
-              <div><strong>物流渠道</strong><span class="helper">（可多行增减；同一物流内名称唯一）</span></div>
-              <div><button class="btn" id="btnAddCh">+ 新增渠道行</button></div>
-            </div>
-            <div id="channels" class="channels"></div>
-
-            <div class="form-row">
-              <label>发货地址</label>
-              <div class="cselect" id="selAddr" role="combobox" aria-expanded="false" aria-haspopup="listbox">
-                <span class="cselect__text" data-value="">请选择地址（或手动填写）</span>
-                <div class="cselect__menu" role="listbox" id="addrMenu"></div>
-              </div>
-              <button class="btn" id="btnManualAddr">手动填写</button>
-            </div>
-
-            <div id="manualAddr" style="display:none; margin-left:100px;">
-              <div class="form-row"><label>国家*</label><div class="input"><input data-k="country_code" type="text" placeholder="如 CN/US"></div></div>
-              <div class="form-row"><label>州/省*</label><div class="input"><input data-k="state" type="text" placeholder=""></div></div>
-              <div class="form-row"><label>城市*</label><div class="input"><input data-k="city" type="text" placeholder=""></div></div>
-              <div class="form-row"><label>街道1*</label><div class="input"><input data-k="street1" type="text" placeholder=""></div></div>
-              <div class="form-row"><label>邮编*</label><div class="input"><input data-k="postcode" type="text" placeholder=""></div></div>
-              <div class="form-row"><label>联系人/公司*</label><div class="input"><input data-k="contact_name" type="text" placeholder="联系人或公司至少一个"></div></div>
-            </div>
-
-            <div class="form-row">
-              <label>标签模板</label>
-              <div class="cselect" id="selTpl" role="combobox" aria-expanded="false" aria-haspopup="listbox">
-                <span class="cselect__text" data-value="">可选</span>
-                <div class="cselect__menu" role="listbox" id="tplMenu"></div>
-              </div>
-            </div>
-          </div>
-
-          <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
-            <button class="btn" id="btnCancel">取消</button>
-            <button class="btn btn--black" id="btnSubmit">保存</button>
-          </div>
+          <button id="prevPage" class="btn" aria-label="上一页">上一页</button>
+          <span>第 <b id="curPage">1</b> / <b id="totalPage">1</b> 页</span>
+          <button id="nextPage" class="btn" aria-label="下一页">下一页</button>
         </div>
       </div>
     `;
@@ -157,75 +95,7 @@
     return root;
   }
 
-  // 构造一行渠道编辑控件
-  function makeChannelLine(i=0){
-    const line = document.createElement('div');
-    line.className = 'channel-line';
-    line.innerHTML = `
-      <div class="input"><input data-k="channel_name" type="text" placeholder="渠道名称*"></div>
-      <div class="input"><input data-k="platform_name" type="text" placeholder="平台名称"></div>
-      <div class="input"><input data-k="platform_carrier_name" type="text" placeholder="平台承运商"></div>
-      <div class="input"><input data-k="platform_channel_name" type="text" placeholder="平台渠道名"></div>
-      <div class="channel-op">
-        <div class="cselect" role="combobox" aria-expanded="false" aria-haspopup="listbox">
-          <span class="cselect__text" data-value="${TRANSPORT_MODES[0]}">${TRANSPORT_MODES[0]}</span>
-          <div class="cselect__menu" role="listbox">
-            ${TRANSPORT_MODES.map(m=>`<div class="cselect__item" role="option" data-v="${m}">${m}</div>`).join('')}
-          </div>
-        </div>
-        <button class="btn" data-op="add">+</button>
-        <button class="btn" data-op="del">−</button>
-      </div>
-    `;
-    return line;
-  }
-
-  function bindCSelect(root){
-    root.addEventListener('click', (e)=>{
-      const cs = e.target.closest('.cselect');
-      if(!cs) return;
-      // 切换菜单
-      const opened = cs.classList.contains('open');
-      $$('.cselect.open', root).forEach(x=>{ if(x!==cs){ x.classList.remove('open'); x.setAttribute('aria-expanded','false'); } });
-      cs.classList.toggle('open', !opened);
-      cs.setAttribute('aria-expanded', String(!opened));
-      const item = e.target.closest('.cselect__item');
-      if(item){
-        const v = item.getAttribute('data-v') ?? item.getAttribute('data-value') ?? '';
-        const t = item.textContent.trim();
-        const textEl = $('.cselect__text', cs);
-        textEl.dataset.value = v;
-        textEl.textContent = t;
-        cs.classList.remove('open');
-        cs.setAttribute('aria-expanded','false');
-      }
-    });
-    document.addEventListener('click', (e)=>{ if(!e.target.closest('.cselect')) $$('.cselect.open').forEach(x=>{ x.classList.remove('open'); x.setAttribute('aria-expanded','false'); }); });
-  }
-
-  function validAddress(obj){
-    // 关键字段：国家/州/市/街道1/邮编 + 联系人或公司
-    if(!obj) return false;
-    const required = ['country_code','state','city','street1','postcode'];
-    for(const k of required) if(!obj[k]) return false;
-    if(!obj.contact_name && !obj.company) return false;
-    return true;
-  }
-
-  function getManualAddress(){
-    const m = {};
-    $$('#manualAddr [data-k]').forEach(inp=> m[inp.dataset.k] = inp.value.trim());
-    return m;
-  }
-
-  // ========== 数据流 ==========
-  async function loadList(){
-    const params = { kw: state.kw, page: state.page, page_size: state.page_size };
-    const { data, pagination } = await fetchJSON(API.list(params));
-    state.list = Array.isArray(data) ? data : [];
-    state.total = pagination?.total || 0;
-  }
-
+  // ---- 渲染逻辑 ----
   function renderList(){
     const tbody = $('#tbody');
     const empty = $('#empty');
@@ -233,201 +103,129 @@
     if(!state.list.length){
       empty.style.display = '';
       $('#curPage').textContent = state.page;
-      $('#totalPage').textContent = Math.max(1, Math.ceil(state.total/state.page_size) || 1);
+      $('#totalPage').textContent = '1';
       return;
     }
     empty.style.display = 'none';
-
-    state.list.forEach(row=>{
-      const tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td><span class="row-toggle" role="button" aria-expanded="false" aria-controls="sub-${esc(row.id)}">▶</span></td>
-        <td>${esc(row.provider_name||'')}</td>
-        <td>${esc(row.created_at||'')}</td>
-        <td>
-          <button class="btn" data-act="rename" data-id="${esc(row.id)}">重命名</button>
-          <button class="btn" data-act="delete" data-id="${esc(row.id)}">删除</button>
-        </td>
+    const rows = state.list.map(row=>{
+      const id = row.id;
+      const name = esc(row.provider_name || '');
+      const ctime = esc(row.created_at || row.created_at_str || '');
+      return `
+        <tr data-id="${id}">
+          <td><button class="btn btn--small" data-act="expand">＋</button></td>
+          <td>${name}</td>
+          <td>${ctime}</td>
+          <td>
+            <button class="btn btn--small" data-act="rename" data-id="${id}">重命名</button>
+            <button class="btn btn--small" data-act="delete" data-id="${id}">删除</button>
+          </td>
+        </tr>
+        <tr class="subrow" data-parent="${id}" style="display:none;"><td colspan="4">
+          <div class="subtable-wrap" style="padding:8px 12px; background:rgba(0,0,0,.02); border-radius:8px;">加载中…</div>
+        </td></tr>
       `;
-      const trSub = document.createElement('tr');
-      trSub.innerHTML = `
-        <td></td>
-        <td colspan="3">
-          <div id="sub-${esc(row.id)}" class="subwrap" hidden>
-            ${renderSubtable(row)}
-          </div>
-        </td>
-      `;
-      tbody.appendChild(tr);
-      tbody.appendChild(trSub);
-    });
-
-    // 交互：展开/收起
-    tbody.addEventListener('click', async (e)=>{
-      const tog = e.target.closest('.row-toggle');
-      if(tog){
-        const id = tog.getAttribute('aria-controls');
-        const wrap = document.getElementById(id);
-        const expanded = tog.getAttribute('aria-expanded') === 'true';
-        tog.setAttribute('aria-expanded', String(!expanded));
-        if(expanded){ wrap.hidden = true; }
-        else{
-          // 可在此处刷新子表（如需要二次拉取）
-          wrap.hidden = false;
-        }
-        return;
-      }
-
-      // 行内操作
-      const btn = e.target.closest('button[data-act]');
-      if(btn){
-        const act = btn.dataset.act, id = btn.dataset.id;
-        if(act==='rename'){
-          const row = state.list.find(x=>String(x.id)===String(id));
-          const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/rename.html?id=${id}&name=${encodeURIComponent(row?.provider_name||'')}`;
-          ShellAPI.openModal({ title:'重命名物流', size:'sm', url });
-        } else if(act==='delete'){
-          ShellAPI.openModal({ title:'删除确认', size:'sm', url: `/modules/logistics_channel/logistics_custom/frontend/templates/modals/delete.html?id=${id}` });
-      }
-    });
-
-    // 分页信息
+    }).join('');
+    tbody.innerHTML = rows;
     $('#curPage').textContent = state.page;
-    $('#totalPage').textContent = Math.max(1, Math.ceil(state.total/state.page_size) || 1);
+    const totalPage = Math.max(1, Math.ceil((state.total||0) / state.page_size) || 1);
+    $('#totalPage').textContent = totalPage;
   }
 
-  function renderSubtable(row){
-    const chs = Array.isArray(row.channels) ? row.channels : [];
-    if(!chs.length) return `<div class="empty">暂无渠道</div>`;
-    const head = `
-      <table class="subtable" aria-label="渠道列表">
-        <thead><tr>
-          <th>物流渠道</th><th>平台映射</th><th>运输方式</th><th>操作</th>
-        </tr></thead><tbody>
-    `;
+  async function loadList(){
+    const params = { kw: state.kw, page: state.page, page_size: state.page_size };
+    const data = await fetchJSON(API.list(params));
+    const list = Array.isArray(data?.data) ? data.data : (Array.isArray(data) ? data : []);
+    const pagination = data?.pagination || {};
+    state.list = list;
+    state.total = pagination.total || list.length || 0;
+  }
+
+  async function loadSubtable(tr){
+    const id = tr?.getAttribute('data-parent');
+    if(!id) return;
+    const row = state.list.find(x=> String(x.id) === String(id));
+    const chs = Array.isArray(row?.channels) ? row.channels : [];
+    const wrap = tr.querySelector('.subtable-wrap');
+    if(!chs.length){
+      wrap.innerHTML = `<div class="empty">暂无渠道</div>`;
+      return;
+    }
     const body = chs.map(ch=>{
       const map = ch.platform_mapping||{};
-      const mapBrief = [map.platform_name, map.platform_carrier_name, map.platform_channel_name]
-        .filter(Boolean).join(' / ') || '-';
-      const statusBtn = ch.status==='active' ? '停用' : '启用';
+      const mapBrief = [map.platform_name, map.platform_carrier_name, map.platform_channel_name].filter(Boolean).join(' / ') || '-';
       return `<tr>
         <td>${esc(ch.channel_name||'')}</td>
         <td>${esc(mapBrief)}</td>
-        <td>${esc(ch.transport_mode||'-')}</td>
-        <td>
-          <button class="btn" data-chact="edit" data-id="${esc(ch.id)}">设置</button>
-          <button class="btn" data-chact="toggle" data-id="${esc(ch.id)}">${statusBtn}</button>
-          <button class="btn" data-chact="del" data-id="${esc(ch.id)}">删除</button>
-        </td>
+        <td>${esc(ch.transport_mode||'')}</td>
       </tr>`;
     }).join('');
-    const foot = `</tbody></table>`;
-    return head + body + foot;
+    wrap.innerHTML = `
+      <table class="subtable" aria-label="渠道列表">
+        <thead><tr><th>物流渠道</th><th>平台映射</th><th>运输方式</th></tr></thead>
+        <tbody>${body}</tbody>
+      </table>`;
   }
 
+  // ---- 事件绑定 ----
   function bindToolbar(){
     const kwInput = $('#kwInput');
     $('#btnSearch').addEventListener('click', ()=>{ state.kw = kwInput.value.trim(); state.page=1; refresh(); });
     $('#btnReset').addEventListener('click', ()=>{ kwInput.value=''; state.kw=''; state.page=1; refresh(); });
-    kwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ state.kw = kwInput.value.trim(); state.page=1; refresh(); } });
-
+    kwInput.addEventListener('keydown', (e)=>{ if(e.key==='Enter'){ state.kw=kwInput.value.trim(); state.page=1; refresh(); } });
     $('#prevPage').addEventListener('click', ()=>{ if(state.page>1){ state.page--; refresh(); } });
     $('#nextPage').addEventListener('click', ()=>{
-      const totalPage = Math.max(1, Math.ceil(state.total/state.page_size) || 1);
+      const totalPage = Math.max(1, Math.ceil((state.total||0)/state.page_size) || 1);
       if(state.page < totalPage){ state.page++; refresh(); }
     });
-
-    $('#btnNew').addEventListener('click', openNewDialog);
+    $('#btnNew').addEventListener('click', ()=>{
+      ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules/logistics_channel/logistics_custom/frontend/templates/modals/new.html' });
+    });
   }
 
-  async function openNewDialog(){
-    ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules/logistics_channel/logistics_custom/frontend/templates/modals/new.html', onClose:{ emit:'shell-modal-closed' } });
-  }
-
-  function closeDialog(){
-    const dlg = $('#dlgNew');
-    dlg.classList.remove('open'); dlg.setAttribute('aria-hidden','true');
-  }
-
-  async function submitNew(){
-    const provider = $('#inpProvider').value.trim();
-    if(!provider){ toast('请填写物流名称', false); return; }
-
-    // 渠道行收集与校验
-    const channels = $$('.channel-line').map(line=>{
-      const kv = (k)=> $('input[data-k="'+k+'"]', line)?.value.trim() || '';
-      const transport_mode = $('.cselect__text', line)?.dataset.value || TRANSPORT_MODES[0];
-      return {
-        channel_name: kv('channel_name'),
-        transport_mode,
-        platform_mapping: {
-          platform_name: kv('platform_name'),
-          platform_carrier_name: kv('platform_carrier_name'),
-          platform_channel_name: kv('platform_channel_name'),
-        }
-      };
-    }).filter(c=>c.channel_name);
-
-    if(!channels.length){ toast('至少新增一行渠道', false); return; }
-
-    // 地址选择或手填
-    const addrValue = $('#selAddr .cselect__text').dataset.value || '';
-    let ship_from = null;
-    if(addrValue){
-      // 后端返回的地址对象（或ID），此处假定接口直接回传标准 address 对象或 value 即对象 ID
-      const item = state.addresses.find(a=>String(a.value)===String(addrValue));
-      ship_from = item?.address || item || null;
-    }
-    if(!ship_from){
-      const m = getManualAddress();
-      if(Object.values(m).some(Boolean)){
-        if(!validAddress(m)){ toast('手动地址信息不完整', false); return; }
-        ship_from = m;
+  function bindTable(){
+    $('#tbody').addEventListener('click', (e)=>{
+      const btn = e.target.closest('button[data-act]'); if(!btn) return;
+      const act = btn.dataset.act;
+      const id  = btn.dataset.id || btn.closest('tr')?.dataset?.id || '';
+      if(act==='expand'){
+        const sub = document.querySelector(`tr.subrow[data-parent="${id}"]`);
+        if(sub){ const show = sub.style.display==='none'; sub.style.display = show ? '' : 'none'; if(show) loadSubtable(sub); }
+      }else if(act==='rename'){
+        const row = state.list.find(x=> String(x.id)===String(id));
+        const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/rename.html?id=${id}&name=${encodeURIComponent(row?.provider_name||'')}`;
+        ShellAPI.openModal({ title:'重命名物流', size:'sm', url });
+      }else if(act==='delete'){
+        const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/delete.html?id=${id}`;
+        ShellAPI.openModal({ title:'删除确认', size:'sm', url });
       }
-    }
-
-    const label_template_code = $('#selTpl .cselect__text').dataset.value || '';
-
-    const payload = {
-      provider_name: provider,
-      label_template_code,
-      ship_from,
-      channels
-    };
-
-    try{
-      await fetchJSON(API.create(), { method:'POST', body: JSON.stringify(payload) });
-      toast('已保存');
-      closeDialog();
-      await refresh();
-    }catch(e){
-      toast(e.message||'保存失败', false);
-    }
+    });
   }
 
+  // ---- 刷新 ----
   async function refresh(){
-    await loadList();
-    renderList();
+    try{
+      await loadList();
+      renderList();
+    }catch(err){
+      toast(err.message||'加载失败', false);
+    }
   }
 
-  // 初始化
+  // ---- 初始化 ----
   function init(){
-    const root = ensureRoot();
+    ensureRoot();
     bindToolbar();
-    bindCSelect(root);
-    refresh().catch(err=>toast(err.message||'加载失败', false));
+    bindTable();
+    refresh();
   }
+  if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', init, { once:true }); } else { init(); }
 
-  document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
-
-})();
-
-  // 接收壳层弹窗的结果事件，按需刷新列表
+  // ---- 弹窗结果回传：刷新列表 ----
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
     if(msg.type==='shell-modal-result' && msg.scope==='logistics_custom'){
-      if(msg.action==='created' || msg.action==='renamed' || msg.action==='deleted'){
-        refresh();
-      }
+      if(msg.action==='created' || msg.action==='renamed' || msg.action==='deleted'){ refresh(); }
     }
   });
+})();
