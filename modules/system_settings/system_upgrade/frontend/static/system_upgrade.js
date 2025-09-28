@@ -1,3 +1,5 @@
+/* Build: sys-upgrade patched v2 | 2025-09-28 */
+console.info('[SysUpgrade] patched build v2 loaded');
 /* --- PATCH: fixed HTML-escape helper h() to avoid syntax error --- */
 /* modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
  * 简约 UI，复用壳层 Token：toolbar / btn / input / select / table-wrap / footer-bar / cselect / modal
@@ -16,7 +18,7 @@
 
   // 工具
   const $ = (sel, el=document) => el.querySelector(sel);
-  const h = (s)=>String(s==null?'':s).replace(/[&<>\"']/g, m=>({ '&':'&amp;','<':'&lt;','>':'&gt;','\"':'&quot;',\"'\":'&#39;' }[m]));
+  const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => (m=='&'?'&amp;': m=='<'?'&lt;': m=='>'?'&gt;': m=='"'?'&quot;':'&#39;'));
   function fmt(ts){
     const d = new Date(ts);
     const p = n => String(n).padStart(2,'0');
@@ -60,7 +62,7 @@
         <div class="left">
           <label>分支
             <select id="branchSel" class="select">
-              ${state.branches.map(b=>`<option value="${h(b)}" ${b===state.branch?'selected':''}>${h(b)}</option>`).join('')}
+              ${state.branches.length?state.branches.map(b=>`<option value="${h(b)}" ${b===state.branch?'selected':''}>${h(b)}</option>`).join(''):`<option value="">加载中…</option>`}
             </select>
           </label>
           <button class="btn btn--black" id="btnSettings">更新设置</button>
@@ -174,7 +176,7 @@
   }
 
   function bindEvents(){
-    window.addEventListener('resize', fitTableHeight);
+    if(!window.__sysUpgResizeBound){ window.addEventListener('resize', fitTableHeight); window.__sysUpgResizeBound=true; }
 
     $('#branchSel').addEventListener('change', ()=>{ state.branch=$('#branchSel').value; saveSettings(); });
     $('#btnSettings').addEventListener('click', ()=> openModal($('#settingsModal')) );
@@ -245,7 +247,7 @@
     }catch(_){}
   }
 
-  async function loadBranches(){
+  async async function loadBranches(){
     try{
       const r = await jget(API_BASE + '/branches');
       state.branches = r.data?.branches || r.branches || [];
@@ -266,7 +268,9 @@
   }
 
   (async function init(){
-    await loadBranches();
+    // 先渲染骨架，避免白屏
+    render();
+    try { await loadBranches(); } catch(_){}
     render();
     loadPref();
     await loadHistory();
