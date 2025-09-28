@@ -50,6 +50,22 @@
     </div>
   </div>
 
+  
+  <!-- 壳层统一弹窗容器 -->
+  <div id="shellModalRoot" class="shell-modal modal" role="dialog" aria-modal="true" aria-hidden="true">
+    <div class="shell-modal__backdrop" data-close="1" aria-hidden="true"></div>
+    <div class="shell-modal__dialog" role="document">
+      <div class="shell-modal__header">
+        <h3 id="shellModalTitle" class="shell-modal__title">—</h3>
+        <button class="shell-modal__close" title="关闭" aria-label="关闭" data-close="1">×</button>
+      </div>
+      <div class="shell-modal__body">
+        <iframe id="shellModalIframe" title="模块弹窗"></iframe>
+      </div>
+    </div>
+  </div>
+
+
   <!-- 壳层交互脚本（渲染 L1/L2/L3；像素级动效） -->
   <script defer src="{{ url_for('modules_static', path='navauth_shell/frontend/static/nav_shell.js') }}"></script>
 </body>

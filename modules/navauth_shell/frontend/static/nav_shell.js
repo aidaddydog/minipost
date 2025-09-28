@@ -102,6 +102,23 @@ html.mask-mode--shell .layui-layer,
 html.mask-mode--shell .van-overlay + .van-popup{
   position: relative; z-index:${Z_IFRAME_ELEV + 1000} !important;
 }
+
+/* ===== 壳层统一弹窗（屏幕级） ===== */
+.shell-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:${Z_IFRAME_ELEV + 1000}; }
+.shell-modal[aria-hidden="false"]{ display:flex; }
+.shell-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.28); }
+.shell-modal__dialog{
+  position:relative; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.2);
+  width: min(920px, 92vw); max-height: 90vh; display:flex; flex-direction:column; overflow:hidden;
+}
+.shell-modal.is-sm .shell-modal__dialog{ width:min(560px,92vw); }
+.shell-modal.is-lg .shell-modal__dialog{ width:min(1200px,96vw); }
+.shell-modal.is-full .shell-modal__dialog{ width:96vw; height:94vh; }
+.shell-modal__header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(0,0,0,.06); }
+.shell-modal__title{ font-size:16px; margin:0; }
+.shell-modal__close{ border:0; background:transparent; font-size:20px; line-height:1; cursor:pointer; }
+.shell-modal__body{ position:relative; padding:0; }
+.shell-modal__body iframe{ display:block; width:100%; border:0; background:transparent; min-height:50vh; }
 `;
     const style = document.createElement('style');
     style.id = OLD_ID;
@@ -528,3 +545,28 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
   bootstrap();
 })();
+
+
+  // 来自模块/弹窗的指令（统一弹窗协议）
+  window.addEventListener('message', (e)=>{
+    const msg = e?.data || {};
+    if(!msg || typeof msg!=='object') return;
+
+    if(msg.type === 'open-shell-modal'){
+      const p = msg.payload || {};
+      shellModal.open({ title:p.title, url:p.url, size:p.size||'md', onCloseEmit: p.onClose?.emit || '' });
+      return;
+    }
+    if(msg.type === 'update-shell-modal'){
+      shellModal.update(msg.payload||{});
+      return;
+    }
+    if(msg.type === 'close-shell-modal'){
+      shellModal.close(msg.payload||null);
+      return;
+    }
+    if(msg.type === 'shell-modal-result'){
+      shellModal.forwardResult({ scope: msg.scope, action: msg.action, data: msg.data||{} });
+      return;
+    }
+  });

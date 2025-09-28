@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>删除物流确认</title>
+  <link rel="stylesheet" href="/modules/_themes/default/root.css" />
+  <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css" />
+  <script src="/modules/common/frontend/static/shell_api.js"></script>
+  <style>
+    body{ margin:0; padding:16px; }
+    .form{ display:grid; gap:12px; }
+    .row{ display:grid; grid-template-columns:120px 1fr; align-items:center; gap:8px; }
+    .btns{ display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+    .input input{ width:100%; }
+  </style>
+</head>
+<body>
+
+  <div role="alertdialog" aria-labelledby="ttl" aria-describedby="msg">
+    <h3 id="ttl">确认删除该物流及其子渠道？</h3>
+    <p id="msg">如被引用，后端将执行软删，不会影响历史单据。</p>
+    <div class="btns" style="margin-top:12px;">
+      <button class="btn" id="btnCancel">取消</button>
+      <button class="btn btn--black" id="btnOk">删除</button>
+    </div>
+  </div>
+  <script>
+    const API = { update: id => '/api/logistics/custom/' + encodeURIComponent(id) };
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id');
+    document.getElementById('btnCancel').onclick = ()=> ShellAPI.closeModal();
+    document.getElementById('btnOk').onclick = async ()=>{
+      try{
+        const res = await fetch(API.update(id), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ deleted: true }) });
+        if(!res.ok){ throw new Error(await res.text()); }
+        ShellAPI.emitResult('logistics_custom','deleted',{ id }); ShellAPI.closeModal();
+      }catch(err){ alert('删除失败：'+(err.message||err)); }
+    };
+  </script>
+
+</body>
+</html>

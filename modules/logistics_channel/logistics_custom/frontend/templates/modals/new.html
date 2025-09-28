@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>新增自定义物流</title>
+  <link rel="stylesheet" href="/modules/_themes/default/root.css" />
+  <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css" />
+  <script src="/modules/common/frontend/static/shell_api.js"></script>
+  <style>
+    body{ margin:0; padding:16px; }
+    .form{ display:grid; gap:12px; }
+    .row{ display:grid; grid-template-columns:120px 1fr; align-items:center; gap:8px; }
+    .btns{ display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+    .input input{ width:100%; }
+  </style>
+</head>
+<body>
+
+  <div class="form" id="app" role="form" aria-label="新增自定义物流">
+    <div class="row">
+      <label for="inpProvider">物流名称*</label>
+      <div class="input"><input id="inpProvider" type="text" placeholder="请输入物流名称" /></div>
+    </div>
+
+    <fieldset style="border:1px solid rgba(0,0,0,.08); border-radius:8px; padding:8px;">
+      <legend>物流渠道（可多行）</legend>
+      <div id="channels"></div>
+      <div style="margin-top:8px;">
+        <button class="btn" id="btnAddCh">+ 新增渠道行</button>
+      </div>
+    </fieldset>
+
+    <div class="btns">
+      <button class="btn" id="btnCancel">取消</button>
+      <button class="btn btn--black" id="btnSubmit">保存</button>
+    </div>
+  </div>
+
+  <script>
+    const API = { create: () => '/api/logistics/custom' };
+    function qs(s, el=document){ return el.querySelector(s); }
+    function ce(tag, cls){ const el = document.createElement(tag); if(cls) el.className = cls; return el; }
+    function makeLine(){
+      const line = ce('div', 'channel-line');
+      line.style.display='grid'; line.style.gridTemplateColumns='repeat(3, 1fr) 80px'; line.style.gap='8px';
+      line.innerHTML = `
+        <div class="input"><input data-k="channel_name" type="text" placeholder="渠道名称*"></div>
+        <div class="input"><input data-k="platform_name" type="text" placeholder="平台名称"></div>
+        <div class="input"><input data-k="platform_channel_name" type="text" placeholder="平台渠道名"></div>
+        <button class="btn" data-op="del">删除</button>
+      `;
+      return line;
+    }
+    const box = qs('#channels'); box.appendChild(makeLine());
+    document.getElementById('btnAddCh').onclick = ()=> box.appendChild(makeLine());
+    document.addEventListener('click', (e)=>{
+      const b = e.target.closest('button[data-op="del"]'); if(b){ const line = b.closest('.channel-line'); if(line && box.children.length>1) line.remove(); }
+    });
+    document.getElementById('btnCancel').onclick = ()=> ShellAPI.closeModal();
+    document.getElementById('btnSubmit').onclick = async ()=>{
+      const provider = qs('#inpProvider').value.trim(); if(!provider){ alert('请填写物流名称'); return; }
+      const channels = Array.from(box.querySelectorAll('.channel-line')).map(line=>{
+        const kv = k => qs('input[data-k="'+k+'"]', line)?.value.trim() || '';
+        return { channel_name: kv('channel_name'), transport_mode: 'express',
+          platform_mapping:{ platform_name: kv('platform_name'), platform_carrier_name:'', platform_channel_name: kv('platform_channel_name') } };
+      });
+      if(!channels.length || !channels[0].channel_name){ alert('请至少填写一个渠道名称'); return; }
+      const payload = { provider_name: provider, channels, default_sender_address:null, label_template_id:null };
+      try{
+        const res = await fetch(API.create(), { method:'POST', headers:{'Content-Type':'application/json'}, body: JSON.stringify(payload) });
+        if(!res.ok){ throw new Error(await res.text()); }
+        ShellAPI.emitResult('logistics_custom','created',{}); ShellAPI.closeModal();
+      }catch(err){ alert('保存失败：'+(err.message||err)); }
+    };
+  </script>
+
+</body>
+</html>

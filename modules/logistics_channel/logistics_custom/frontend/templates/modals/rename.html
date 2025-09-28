@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>重命名物流</title>
+  <link rel="stylesheet" href="/modules/_themes/default/root.css" />
+  <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css" />
+  <script src="/modules/common/frontend/static/shell_api.js"></script>
+  <style>
+    body{ margin:0; padding:16px; }
+    .form{ display:grid; gap:12px; }
+    .row{ display:grid; grid-template-columns:120px 1fr; align-items:center; gap:8px; }
+    .btns{ display:flex; justify-content:flex-end; gap:8px; margin-top:8px; }
+    .input input{ width:100%; }
+  </style>
+</head>
+<body>
+
+  <div class="form" role="form" aria-label="重命名物流">
+    <div class="row">
+      <label for="newName">新的物流名称*</label>
+      <div class="input"><input id="newName" type="text" placeholder="请输入新的名称" /></div>
+    </div>
+    <div class="btns">
+      <button class="btn" id="btnCancel">取消</button>
+      <button class="btn btn--black" id="btnOk">确定</button>
+    </div>
+  </div>
+  <script>
+    const API = { update: id => '/api/logistics/custom/' + encodeURIComponent(id) };
+    const params = new URLSearchParams(location.search);
+    const id = params.get('id'); const cur = params.get('name')||'';
+    document.getElementById('newName').value = cur;
+    document.getElementById('btnCancel').onclick = ()=> ShellAPI.closeModal();
+    document.getElementById('btnOk').onclick = async ()=>{
+      const name = document.getElementById('newName').value.trim(); if(!name){ alert('请输入名称'); return; }
+      try{
+        const res = await fetch(API.update(id), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ provider_name: name }) });
+        if(!res.ok){ throw new Error(await res.text()); }
+        ShellAPI.emitResult('logistics_custom','renamed',{ id, name }); ShellAPI.closeModal();
+      }catch(err){ alert('重命名失败：'+(err.message||err)); }
+    };
+  </script>
+
+</body>
+</html>

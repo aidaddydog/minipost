@@ -284,18 +284,10 @@
         const act = btn.dataset.act, id = btn.dataset.id;
         if(act==='rename'){
           const row = state.list.find(x=>String(x.id)===String(id));
-          const name = prompt('新的物流名称', row?.provider_name||'');
-          if(name && name!==row?.provider_name){
-            await fetchJSON(API.update(id), { method:'PUT', body: JSON.stringify({ provider_name: name }) });
-            toast('已重命名');
-            await refresh();
-          }
-        }else if(act==='delete'){
-          if(!confirm('确认删除该物流及其子渠道？\n（如被引用，后端将执行软删）')) return;
-          await fetchJSON(API.update(id), { method:'PUT', body: JSON.stringify({ deleted: true }) });
-          toast('已提交删除');
-          await refresh();
-        }
+          const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/rename.html?id=${id}&name=${encodeURIComponent(row?.provider_name||'')}`;
+          ShellAPI.openModal({ title:'重命名物流', size:'sm', url });
+        } else if(act==='delete'){
+          ShellAPI.openModal({ title:'删除确认', size:'sm', url: `/modules/logistics_channel/logistics_custom/frontend/templates/modals/delete.html?id=${id}` });
       }
     });
 
@@ -349,49 +341,7 @@
   }
 
   async function openNewDialog(){
-    const dlg = $('#dlgNew');
-    dlg.classList.add('open'); dlg.setAttribute('aria-hidden','false');
-
-    // 初始一行渠道
-    const box = $('#channels'); box.innerHTML='';
-    box.appendChild(makeChannelLine());
-
-    // 地址/模板下拉数据
-    try{
-      const [addrRes, tplRes] = await Promise.allSettled([ fetchJSON(API.addr()), fetchJSON(API.labels()) ]);
-      if(addrRes.status==='fulfilled') state.addresses = Array.isArray(addrRes.value?.data)?addrRes.value.data:[];
-      if(tplRes.status==='fulfilled')  state.labelTemplates = Array.isArray(tplRes.value?.data)?tplRes.value.data:[];
-    }catch(_){}
-
-    // 填充地址菜单
-    const addrMenu = $('#addrMenu'); addrMenu.innerHTML = (state.addresses.length?state.addresses:[{label:'无可用地址', value:''}])
-      .map(a=>`<div class="cselect__item" role="option" data-value="${esc(a.value||'')}">${esc(a.label||'')}</div>`).join('');
-
-    // 填充模板菜单
-    const tplMenu = $('#tplMenu'); tplMenu.innerHTML = (state.labelTemplates.length?state.labelTemplates:[{code:'', name:'无'}])
-      .map(t=>`<div class="cselect__item" role="option" data-value="${esc(t.code||'')}">${esc(t.name||'')}</div>`).join('');
-
-    bindCSelect(dlg);
-
-    // 增删渠道行
-    box.addEventListener('click', (e)=>{
-      const b = e.target.closest('button[data-op]'); if(!b) return;
-      if(b.dataset.op==='add') box.appendChild(makeChannelLine());
-      else if(b.dataset.op==='del'){
-        const line = b.closest('.channel-line');
-        if($$('.channel-line').length>1) line.remove();
-      }
-    });
-
-    // 手动地址
-    $('#btnManualAddr').addEventListener('click', ()=>{
-      const sec = $('#manualAddr');
-      sec.style.display = (sec.style.display==='none'?'':'none')==='none' ? '' : 'none';
-    });
-
-    // 关闭/提交
-    $('#btnCancel').onclick = ()=>{ closeDialog(); };
-    $('#btnSubmit').onclick = submitNew;
+    ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules/logistics_channel/logistics_custom/frontend/templates/modals/new.html', onClose:{ emit:'shell-modal-closed' } });
   }
 
   function closeDialog(){
@@ -471,3 +421,13 @@
   document.readyState === 'loading' ? document.addEventListener('DOMContentLoaded', init) : init();
 
 })();
+
+  // 接收壳层弹窗的结果事件，按需刷新列表
+  window.addEventListener('message', (e)=>{
+    const msg = e?.data || {};
+    if(msg.type==='shell-modal-result' && msg.scope==='logistics_custom'){
+      if(msg.action==='created' || msg.action==='renamed' || msg.action==='deleted'){
+        refresh();
+      }
+    }
+  });
