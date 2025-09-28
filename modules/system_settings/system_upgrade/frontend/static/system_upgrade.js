@@ -1,368 +1,307 @@
-/* Build: sys-upgrade patched v6 (API_BASE auto + credentials:same-origin) | 2025-09-28 */
-(function() {
-  'use strict';
-
+/* Build: sys-upgrade patched v5 (modal hidden + mask hide) | 2025-09-28 */
+console.info('[SysUpgrade] patched build v2 loaded');
+/* --- PATCH: fixed HTML-escape helper h() to avoid syntax error --- */
+/* modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
+ * 简约 UI，复用壳层 Token：toolbar / btn / input / select / table-wrap / footer-bar / cselect / modal
+ * API 约定（模拟优先，容器具备 git 时自动走真实模式）
+ *   GET  /api/settings/system_settings/system_upgrade/branches
+ *   POST /api/settings/system_settings/system_upgrade/check    {branch}
+ *   POST /api/settings/system_settings/system_upgrade/execute  {branch, options?}
+ *   GET  /api/settings/system_settings/system_upgrade/history  ?page=&page_size=
+ *   POST /api/settings/system_settings/system_upgrade/history/{id}/rollback
+ *   DELETE /api/settings/system_settings/system_upgrade/history/{id}
+ *   GET  /api/settings/system_settings/system_upgrade/history/{id}/log
+ */
+(function(){
   const ROOT = document.getElementById('system-upgrade-app');
-  if (!ROOT) {
-    console.warn('[SysUpgrade] #system-upgrade-app not found');
-    return;
-  }
+  const API_BASE = '/api/settings/system_settings/system_upgrade';
+  function _hideShellMask(){ try{ window.parent && window.parent.postMessage({type:'shell-mask', action:'hide', source:'module'}, '*'); }catch(e){} }
 
-  /* ---------- utils ---------- */
-  function h(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;')
-      .replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;')
-      .replace(/\"/g, '&quot;')
-      .replace(/'/g, '&#39;');
-  }
-  function pad(n) { return String(n).padStart(2, '0'); }
-  function fmt(ts) {
-    if (!ts) return '';
-    const d = new Date(ts * 1000);
-    return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
-      + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
-  }
-  function toast(msg) {
-    try {
-      if (window.parent && window.parent.postMessage) {
-        window.parent.postMessage({type:'toast', message:String(msg)}, '*');
-      }
-    } catch(_) {}
-    alert(String(msg));
-  }
 
-  /** Detect app base prefix robustly (supports FastAPI root_path / reverse proxies).
-   * Priority: window.__APP_BASE__ -> <meta name="app-base"> -> <script src> before '/modules/' -> <base href> -> ''
-   */
-  function __detectAppBase() {
-    try {
-      if (window.__APP_BASE__) return window.__APP_BASE__;
-      const meta = document.querySelector('meta[name="app-base"]');
-      if (meta && meta.content) return meta.content;
-      const cur = document.currentScript || (function() {
-        const s = document.getElementsByTagName('script');
-        return s[s.length-1];
-      })();
-      if (cur && cur.src) {
-        const u = new URL(cur.src, location.href);
-        const p = u.pathname || '';
-        const idx = p.indexOf('/modules/');
-        if (idx > 0) return p.slice(0, idx);
-      }
-      const baseEl = document.querySelector('base[href]');
-      if (baseEl) {
-        const u2 = new URL(baseEl.getAttribute('href'), location.href);
-        const p2 = u2.pathname || '';
-        return p2.endsWith('/') ? p2.slice(0, -1) : p2;
-      }
-    } catch(e) {}
-    return '';
-  }
-  const APP_BASE = __detectAppBase();
-  const API_BASE = APP_BASE + '/api/settings/system_settings/system_upgrade';
+  // 工具
 
-  async function jget(url) {
-    const r = await fetch(url, { credentials: 'same-origin' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }
-  async function jpost(url, data) {
-    const r = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      credentials: 'same-origin',
-      body: JSON.stringify(data || {})
-    });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }
-  async function jdel(url) {
-    const r = await fetch(url, { method: 'DELETE', credentials: 'same-origin' });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
-    return r.json();
-  }
+  function getPref(){ try{ return JSON.parse(localStorage.getItem('SYS_UPGRADE_PREF'))||{}; }catch(_){ return {}; } }
+  function setPref(o){ try{ localStorage.setItem('SYS_UPGRADE_PREF', JSON.stringify(o||{})); }catch(_){ } }
 
-  function hideShellMask() {
-    try {
-      window.parent && window.parent.postMessage && window.parent.postMessage({type:'shell-mask', action:'hide', source:'system_upgrade'}, '*');
-    } catch(_) {
-      /* ignore */
-    }
+  const $ = (sel, el=document) => el.querySelector(sel);
+  const h = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, m => (m=='&'?'&amp;': m=='<'?'&lt;': m=='>'?'&gt;': m=='"'?'&quot;':'&#39;'));
+  function fmt(ts){
+    const d = new Date(ts);
+    const p = n => String(n).padStart(2,'0');
+    return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
   }
+  async function jget(url){ const r=await fetch(url); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  async function jpost(url, data){ const r=await fetch(url,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(data||{})}); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  async function jdel(url){ const r=await fetch(url,{method:'DELETE'}); if(!r.ok) throw new Error('HTTP '+r.status); return r.json(); }
+  function toast(msg){ alert(msg); }
 
-  /* ---------- state ---------- */
   const state = {
     branches: [],
-    current: '',
     branch: '',
     check: null,
-    hist: { rows: [], total: 0, page: 1, page_size: 20 },
-    checking: false,
-    executing: false,
-    loadingBranches: false,
-    loadingHist: false,
+    page: 1,
+    page_size: 20,
+    total: 0,
+    rows: [],
   };
 
-  /* ---------- rendering ---------- */
-  function render() {
+  // 自定义选择器（简化版）
+  function mkCSelect(select){
+    if(!select || select.dataset.enhanced==='1') return;
+    const wrap = document.createElement('div'); wrap.className='cselect'; select.parentNode.insertBefore(wrap, select);
+    const btn = document.createElement('button'); btn.type='button'; btn.className='cs-toggle'; btn.innerHTML='<span class="cs-text"></span><span class="caret">▾</span>';
+    const menu = document.createElement('div'); menu.className='menu'; menu.setAttribute('role','listbox'); wrap.appendChild(select); wrap.appendChild(btn); wrap.appendChild(menu);
+    select.classList.add('sr-select'); select.dataset.enhanced='1';
+    function sync(){
+      const cur = select.options[select.selectedIndex]; $('.cs-text',wrap).textContent = cur?cur.text:'';
+      menu.innerHTML = Array.from(select.options).map((opt,i)=>`<a href="#" data-v="${h(opt.value)}" ${i===select.selectedIndex?'aria-selected="true"':''}>${h(opt.text)}</a>`).join('');
+      menu.querySelectorAll('a').forEach(a=>a.addEventListener('click',e=>{e.preventDefault(); const v=a.dataset.v; select.value=v; sync(); select.dispatchEvent(new Event('change',{bubbles:true})); wrap.classList.remove('open'); btn.setAttribute('aria-expanded','false');}));
+    }
+    sync();
+    btn.addEventListener('click',(e)=>{ e.stopPropagation(); const willOpen=!wrap.classList.contains('open'); document.querySelectorAll('.cselect.open').forEach(x=>x.classList.remove('open')); wrap.classList.toggle('open',willOpen); btn.setAttribute('aria-expanded',willOpen?'true':'false'); });
+    document.addEventListener('click',()=>wrap.classList.remove('open'));
+  }
+
+  function render(){
     ROOT.innerHTML = `
-      <div class="toolbar" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
-        <label>分支</label>
-        <select id="selBranch" class="input">
-          ${(() => {
-            const brs = state.branches.length ? state.branches : (state.current ? [state.current] : []);
-            return (brs||[]).map(b=>`<option value="${h(b)}" ${b===state.branch?'selected':''}>${h(b)}</option>`).join('');
-          })()}
-        </select>
-        <button id="btnCheck" class="btn">${state.checking?'正在检查...':'检查更新'}</button>
-        <button id="btnExecute" class="btn btn-primary" ${(state.check && state.check.update_available && !state.executing)?'':'disabled'}>
-          ${state.executing?'执行中...':'一键更新'}
-        </button>
-        <span id="checkSummary" style="margin-left:8px;color:var(--muted-foreground,#666);">
-          ${renderSummary()}
-        </span>
-      </div>
-
-      <div class="table-wrap" style="margin-top:12px;${!state.check || !state.check.changed_files || !state.check.changed_files.length ? 'display:none':''}">
-        <table class="table">
-          <thead><tr><th style="width:68px">#</th><th>变更文件</th></tr></thead>
-          <tbody>
-            ${(state.check?.changed_files||[]).map((f,i)=>`<tr><td>${i+1}</td><td><code style="white-space:pre-wrap">${h(f)}</code></td></tr>`).join('')}
-          </tbody>
-        </table>
-      </div>
-
-      <div style="margin-top:20px;display:flex;align-items:center;justify-content:space-between;">
-        <h3 style="margin:0;font-size:16px;">历史记录</h3>
-        <div class="pager">
-          <button id="prevPage" class="btn" ${state.hist.page<=1?'disabled':''}>上一页</button>
-          <span style="margin:0 8px;">第 ${state.hist.page} 页 / 共 ${Math.max(1, Math.ceil(state.hist.total/state.hist.page_size))} 页（${state.hist.total} 条）</span>
-          <button id="nextPage" class="btn" ${state.hist.page>=Math.ceil(state.hist.total/state.hist.page_size)?'disabled':''}>下一页</button>
+      <div class="up-toolbar">
+        <div class="left">
+          <label>分支
+            <select id="branchSel" class="select">
+              ${state.branches.length?state.branches.map(b=>`<option value="${h(b)}" ${b===state.branch?'selected':''}>${h(b)}</option>`).join(''):`<option value="">加载中…</option>`}
+            </select>
+          </label>
+          <button class="btn btn--black" id="btnSettings">更新设置</button>
+        </div>
+        <div class="right">
+          <span id="verTip" style="color:#334155;">${state.check && state.check.update_available ? `检测到更新：${h(state.check.version)}` : '已是最新'}</span>
+          <button class="btn btn--black" id="btnCheck">检查更新</button>
+          <button class="btn btn--black" id="btnUpgrade" ${state.check && state.check.update_available ? '' : 'disabled'}>执行更新</button>
         </div>
       </div>
 
-      <div class="table-wrap" style="margin-top:8px;">
-        <table class="table">
-          <thead>
-            <tr>
-              <th style="width:210px">时间</th>
-              <th style="width:120px">版本</th>
-              <th style="width:120px">分支</th>
-              <th>文件数</th>
-              <th style="width:260px">操作</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${state.hist.rows.length ? state.hist.rows.map(r=>`
+      <div class="table-wrap" id="tableWrap">
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
               <tr>
-                <td>${fmt(r.created_at)}</td>
-                <td><code>${h(r.version||'')}</code></td>
-                <td><code>${h(r.branch||'')}</code></td>
-                <td>${(r.files||[]).length}</td>
-                <td>
-                  <button class="btn btn-sm" data-act="log" data-id="${h(r.id)}">查看日志</button>
-                  <button class="btn btn-sm" data-act="rollback" data-id="${h(r.id)}">回滚</button>
-                  <button class="btn btn-sm" data-act="delete" data-id="${h(r.id)}">删除</button>
-                </td>
+                <th>快照时间</th>
+                <th>更新版本号</th>
+                <th>操作</th>
               </tr>
-            `).join('') : `<tr><td colspan="5" style="text-align:center;color:var(--muted-foreground,#666);">暂无记录</td></tr>`}
-          </tbody>
-        </table>
+            </thead>
+            <tbody id="tbody">
+              ${state.rows.map(r=>`
+                <tr data-id="${h(r.id)}">
+                  <td>${h(fmt(r.created_at))}</td>
+                  <td>${h(r.version)}</td>
+                  <td>
+                    <button class="btn-link act-rollback">回滚</button>
+                    <button class="btn-link act-log">日志</button>
+                    <button class="btn-link act-del">删除</button>
+                  </td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="footer-bar" id="footerBar">
+        <div class="inner">
+          <label>每页
+            <select id="pageSize" class="size">
+              <option value="20" ${state.page_size==20?'selected':''}>20 条</option>
+              <option value="50" ${state.page_size==50?'selected':''}>50 条</option>
+              <option value="100" ${state.page_size==100?'selected':''}>100 条</option>
+            </select>
+          </label>
+          <span id="pageInfo">共 ${state.total} 条 ${state.page}/${Math.max(1, Math.ceil(state.total/state.page_size))} 页</span>
+          <span class="pager">
+            <a href="#" id="firstPage">&laquo;</a>
+            <a href="#" id="prevPage">&lsaquo;</a>
+            <span id="pageNums"></span>
+            <a href="#" id="nextPage">&rsaquo;</a>
+            <a href="#" id="lastPage">&raquo;</a>
+          </span>
+          <span>跳转 <input type="number" id="jumpTo" min="1" value="${state.page}"> 页</span>
+          <span class="flex-1"></span>
+          <a class="link-top" href="#" id="goTop">回到顶部 ↑</a>
+        </div>
+      </div>
+      </div>
       </div>
     `;
+
+    mkCSelect($('#branchSel'));
+    mkCSelect($('#pageSize'));
+    fitTableHeight();
     bindEvents();
+    renderPager();
   }
 
-  function renderSummary() {
-    const c = state.check;
-    if (!c) return '尚未检查';
-    if (!c.update_available) return `已是最新（版本 ${h(c.version||'')}）`;
-    const n = (c.changed_files||[]).length || c.count || 0;
-    return `检测到更新（${n} 个文件），版本 ${h(c.version||'')}`;
+  function fitTableHeight(){
+    const wrap = $('#tableWrap'); if(!wrap) return;
+    const scroller = wrap.querySelector('.table-scroll'); if(!scroller) return;
+    const top = scroller.getBoundingClientRect().top;
+    const footer = $('#footerBar'); const footerTop = footer ? footer.getBoundingClientRect().top : window.innerHeight;
+    const h = Math.max(120, Math.floor(footerTop - top - 12));
+    scroller.style.maxHeight = h+'px'; scroller.style.height = h+'px';
   }
 
-  function bindEvents() {
-    const sel = ROOT.querySelector('#selBranch');
-    if (sel) {
-      sel.addEventListener('change', () => {
-        state.branch = sel.value || state.current || 'main';
-        savePref();
-      });
-    }
+  function renderPager(){
+    const totalPages = Math.max(1, Math.ceil(state.total/state.page_size));
+    const nums = [];
+    const s = Math.max(1, state.page-2), e = Math.min(totalPages, state.page+2);
+    for(let i=s; i<=e; i++) nums.push(`<a href="#" data-p="${i}" style="${i===state.page?'font-weight:700;text-decoration:underline':''}">${i}</a>`);
+    $('#pageNums').innerHTML = nums.join('');
+    $('#pageNums').querySelectorAll('a').forEach(a=>a.addEventListener('click',(e)=>{ e.preventDefault(); state.page=+a.dataset.p; loadHistory(); }));
+  }
 
-    const btnCheck = ROOT.querySelector('#btnCheck');
-    if (btnCheck && !state.checking) {
-      btnCheck.addEventListener('click', onCheck);
-    }
+  function bindEvents(){
+    if(!window.__sysUpgResizeBound){ window.addEventListener('resize', fitTableHeight); window.__sysUpgResizeBound=true; }
 
-    const btnExec = ROOT.querySelector('#btnExecute');
-    if (btnExec && !state.executing && state.check && state.check.update_available) {
-      btnExec.addEventListener('click', onExecute);
-    }
-
-    const prev = ROOT.querySelector('#prevPage');
-    const next = ROOT.querySelector('#nextPage');
-    prev && prev.addEventListener('click', async () => {
-      if (state.hist.page>1) {
-        state.hist.page -= 1;
-        await loadHistory();
-      }
+    $('#branchSel').addEventListener('change', ()=>{ state.branch=$('#branchSel').value; saveSettings(); });
+    $('#btnSettings').addEventListener('click', ()=> {
+      const pref = getPref();
+      const url = '/modules/system_settings/system_upgrade/frontend/templates/modals/settings.html'
+        + '?backup=' + (pref.optBackup?1:0)
+        + '&only_changed=' + (pref.optOnlyChanged?1:0);
+      if(window.ShellAPI){ ShellAPI.openModal({ title:'更新设置', size:'sm', url }); }
+      else { alert('ShellAPI 未加载'); }
     });
-    next && next.addEventListener('click', async () => {
-      const maxp = Math.max(1, Math.ceil(state.hist.total/state.hist.page_size));
-      if (state.hist.page < maxp) {
-        state.hist.page += 1;
-        await loadHistory();
-      }
+    // removed: local modal -> shell modal
+    // removed: local modal -> shell modal (handled inside settings.html)
+
+    $('#btnCheck').addEventListener('click', async ()=>{
+      try{
+        const r = await jpost(API_BASE + '/check', { branch: state.branch });
+        state.check = r.data || r;
+        render();
+      }catch(e){ toast('检查失败：'+e.message); }
     });
 
-    ROOT.querySelectorAll('button[data-act]').forEach(btn => {
-      btn.addEventListener('click', async (e) => {
-        const id = btn.getAttribute('data-id');
-        const act = btn.getAttribute('data-act');
-        try {
-          if (act === 'log') {
-            const r = await jget(`${API_BASE}/history/${encodeURIComponent(id)}/log`);
-            const log = (r && r.data && r.data.log) || '';
-            showModal('更新日志', `<pre style="white-space:pre-wrap;max-height:50vh;overflow:auto;padding:12px;">${h(log)}</pre>`);
-          } else if (act === 'delete') {
-            if (!confirm('确定删除该记录？')) return;
-            await jdel(`${API_BASE}/history/${encodeURIComponent(id)}`);
-            await loadHistory();
-          } else if (act === 'rollback') {
-            if (!confirm('确定回滚到该版本吗？')) return;
-            const r = await jpost(`${API_BASE}/history/${encodeURIComponent(id)}/rollback`, {});
-            if (r && (r.ok || r.data)) {
-              toast('回滚请求已提交');
-            }
-          }
-        } catch(err) {
-          console.error(err);
-          toast('操作失败：' + (err && err.message ? err.message : err));
-        }
-      });
-    });
-  }
-
-  function showModal(title, html) {
-    // Minimal modal; no dependency on external shell
-    let modal = document.getElementById('sysupg-modal');
-    if (!modal) {
-      modal = document.createElement('div');
-      modal.id = 'sysupg-modal';
-      modal.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;z-index:9999;';
-      modal.innerHTML = `
-        <div style="background:#fff;max-width:720px;width:90%;border-radius:8px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.2);">
-          <div style="padding:12px 16px;border-bottom:1px solid #eee;display:flex;align-items:center;justify-content:space-between;">
-            <strong id="sysupg-modal-title" style="font-size:14px;"></strong>
-            <button id="sysupg-modal-close" class="btn">关闭</button>
-          </div>
-          <div id="sysupg-modal-body" style="padding:12px 16px;max-height:60vh;overflow:auto;"></div>
-        </div>`;
-      document.body.appendChild(modal);
-      modal.addEventListener('click', (e) => {
-        if (e.target === modal) modal.remove();
-      });
-      modal.querySelector('#sysupg-modal-close').addEventListener('click', () => modal.remove());
-    }
-    modal.querySelector('#sysupg-modal-title').textContent = title || '';
-    modal.querySelector('#sysupg-modal-body').innerHTML = html || '';
-    modal.style.display = 'flex';
-  }
-
-  /* ---------- data loaders ---------- */
-  async function loadBranches() {
-    state.loadingBranches = true; render();
-    try {
-      const r = await jget(`${API_BASE}/branches`);
-      const d = (r && r.data) || r || {};
-      state.branches = Array.isArray(d.branches) ? d.branches : [];
-      state.current = d.current || (state.branches[0] || 'main');
-      state.branch = state.branch || state.current || 'main';
-    } catch(err) {
-      console.error(err);
-      toast('加载分支失败：' + (err && err.message ? err.message : err));
-    } finally {
-      state.loadingBranches = false; render();
-    }
-  }
-
-  async function onCheck() {
-    state.checking = true; render();
-    try {
-      const r = await jpost(`${API_BASE}/check`, { branch: state.branch || state.current || 'main' });
-      const d = (r && r.data) || r || {};
-      state.check = d;
-    } catch(err) {
-      console.error(err);
-      toast('检查失败：' + (err && err.message ? err.message : err));
-    } finally {
-      state.checking = false; render();
-    }
-  }
-
-  async function onExecute() {
-    if (!state.check || !state.check.update_available) {
-      toast('当前无可用更新');
-      return;
-    }
-    if (!confirm('将执行更新（可能会覆盖文件），继续？')) return;
-    state.executing = true; render();
-    try {
-      const r = await jpost(`${API_BASE}/execute`, { branch: state.branch || state.current || 'main', options: { only_changed: true, backup: true } });
-      if (r && (r.ok || r.data)) {
-        toast('更新已执行');
+    $('#btnUpgrade').addEventListener('click', async ()=>{
+      try{
+        const _pref = getPref();
+        const options = { backup: !!_pref.optBackup, only_changed: !!_pref.optOnlyChanged };
+        const r = await jpost(API_BASE + '/execute', { branch: state.branch, options });
+        toast('执行完成：' + (r.message || '已生成快照'));
         state.check = null;
         await loadHistory();
-      } else {
-        toast('更新执行失败');
+      }catch(e){ toast('执行失败：'+e.message); }
+    });
+
+    $('#pageSize').addEventListener('change', ()=>{ state.page_size=+$('#pageSize').value||20; state.page=1; loadHistory(); });
+    $('#firstPage').addEventListener('click',(e)=>{ e.preventDefault(); state.page=1; loadHistory(); });
+    $('#prevPage').addEventListener('click',(e)=>{ e.preventDefault(); state.page=Math.max(1,state.page-1); loadHistory(); });
+    $('#nextPage').addEventListener('click',(e)=>{ e.preventDefault(); const tp=Math.max(1,Math.ceil(state.total/state.page_size)); state.page=Math.min(tp,state.page+1); loadHistory(); });
+    $('#lastPage').addEventListener('click',(e)=>{ e.preventDefault(); state.page=Math.max(1,Math.ceil(state.total/state.page_size)); loadHistory(); });
+    $('#jumpTo').addEventListener('change', ()=>{ const p=+$('#jumpTo').value||1; const tp=Math.max(1,Math.ceil(state.total/state.page_size)); state.page=Math.min(Math.max(1,p),tp); loadHistory(); });
+    $('#goTop').addEventListener('click',(e)=>{ e.preventDefault(); const sc=$('#tableWrap .table-scroll'); sc && sc.scrollTo({top:0,behavior:'smooth'}); });
+
+    $('#tbody').addEventListener('click', async (e)=>{
+      const tr = e.target.closest('tr'); if(!tr) return;
+      const id = tr.dataset.id;
+      if(e.target.classList.contains('act-rollback')){
+        if(!confirm('确认回滚到该快照？')) return;
+        try{ await jpost(`${API_BASE}/history/${encodeURIComponent(id)}/rollback`, {}); toast('已执行回滚（模拟/或后台真实执行）。'); await loadHistory(); }catch(err){ toast('回滚失败：'+err.message); }
+      }else if(e.target.classList.contains('act-del')){
+        if(!confirm('确认删除该记录？')) return;
+        try{ await jdel(`${API_BASE}/history/${encodeURIComponent(id)}`); await loadHistory(); }catch(err){ toast('删除失败：'+err.message); }
+      }else if(e.target.classList.contains('act-log')){
+        try{ const r = await jget(`${API_BASE}/history/${encodeURIComponent(id)}/log`); $('#logText').value = (r.data && r.data.log) || r.log || ''; openModal($('#logModal')); }catch(err){ toast('加载日志失败：'+err.message); }
       }
-    } catch(err) {
-      console.error(err);
-      toast('执行失败：' + (err && err.message ? err.message : err));
-    } finally {
-      state.executing = false; render();
+    });
+
+    // 收壳层弹窗结果（settingsSaved）
+    window.addEventListener('message', (e)=>{
+      const msg = e.data || {};
+      if(msg.type === 'shell-modal-result' && msg.scope === 'system_upgrade'){
+        if(msg.action === 'settingsSaved'){
+          const opts = msg.data || {};
+          const old = getPref();
+          setPref({ ...old, optBackup: !!opts.optBackup, optOnlyChanged: !!opts.optOnlyChanged });
+          toast('更新设置已保存');
+        }
+      }
+    });
+
+  }
+
+  // 弹窗 & 壳层模糊联动（由 mask_bridge.js 接管整页灰层；此处仅开关自身可交互）
+  function openModal(m){
+    // 拦截：将本地 modal 重定向为壳层弹窗
+    try{
+      if(m && m.id === 'logModal' && window.ShellAPI){
+        var el = document.getElementById('logText');
+        var txt = el ? (('value' in el) ? el.value : (el.textContent||'')) : '';
+        var c = btoa(unescape(encodeURIComponent(txt)));
+        var url = '/modules/system_settings/system_upgrade/frontend/templates/modals/log.html?c=' + c;
+        ShellAPI.openModal({ title:'更新日志', size:'md', url });
+        return;
+      }
+      if(m && m.id === 'settingsModal' && window.ShellAPI){
+        var pref = getPref();
+        var url = '/modules/system_settings/system_upgrade/frontend/templates/modals/settings.html'
+          + '?backup=' + (pref.optBackup?1:0)
+          + '&only_changed=' + (pref.optOnlyChanged?1:0);
+        ShellAPI.openModal({ title:'更新设置', size:'sm', url });
+        return;
+      }
+    }catch(_){}
+    // 兜底：保留本地 modal（理论上不会触发）
+    if(m){ m.style.display='flex'; }
+    document.documentElement.style.overflow='hidden';
+  }
+  function closeModal(m){ m.style.display='none'; document.documentElement.style.overflow=''; _hideShellMask(); }
+
+  // 用户偏好
+  function saveSettings(){
+    try{
+      const obj = { branch: $('#branchSel').value, optBackup: $('#optBackup')?.checked, optOnlyChanged: $('#optOnlyChanged')?.checked };
+      localStorage.setItem('SYS_UPGRADE_PREF', JSON.stringify(obj));
+    }catch(_){}
+  }
+  function loadPref(){
+    try{
+      const raw = localStorage.getItem('SYS_UPGRADE_PREF'); if(!raw) return;
+      const o = JSON.parse(raw)||{};
+      state.branch = o.branch || state.branch;
+      setTimeout(()=>{
+        if($('#optBackup')) $('#optBackup').checked = !!o.optBackup;
+        if($('#optOnlyChanged')) $('#optOnlyChanged').checked = !!o.optOnlyChanged;
+      },0);
+    }catch(_){}
+  }
+
+  async function loadBranches(){
+    try{
+      const r = await jget(API_BASE + '/branches');
+      state.branches = r.data?.branches || r.branches || [];
+      state.branch = r.data?.current || r.current || state.branches[0] || 'main';
+    }catch(e){
+      state.branches = ['main']; state.branch = 'main';
     }
   }
 
-  async function loadHistory() {
-    state.loadingHist = true; render();
-    try {
-      const r = await jget(`${API_BASE}/history?page=${state.hist.page}&page_size=${state.hist.page_size}`);
-      const d = (r && r.data) || r || {};
-      state.hist.rows = Array.isArray(d.rows) ? d.rows : [];
-      state.hist.total = d.total || 0;
-      state.hist.page = d.page || state.hist.page;
-      state.hist.page_size = d.page_size || state.hist.page_size;
-    } catch(err) {
-      console.error(err);
-      toast('加载历史失败：' + (err && err.message ? err.message : err));
-      state.hist.rows = []; state.hist.total = 0;
-    } finally {
-      state.loadingHist = false; render();
+  async function loadHistory(){
+    try{
+      const r = await jget(`${API_BASE}/history?page=${state.page}&page_size=${state.page_size}`);
+      state.rows = r.data?.rows || r.rows || []; state.total = r.data?.total || r.total || state.rows.length;
+      render(); // 渲染分页 UI
+    }catch(e){
+      state.rows = []; state.total = 0; render();
     }
   }
 
-  function savePref() {
-    try {
-      localStorage.setItem('sys_upg_branch', state.branch || '');
-    } catch(_) { /* ignore */ }
-  }
-  function loadPref() {
-    try {
-      const b = localStorage.getItem('sys_upg_branch');
-      if (b) state.branch = b;
-    } catch(_) {}
-  }
-
-  (async function init() {
-    hideShellMask();
+  (async function init(){
+    // 先渲染骨架，避免白屏
+    render();
+  _hideShellMask();
+    try { await loadBranches(); } catch(_){}
     render();
     loadPref();
-    await loadBranches();
     await loadHistory();
-    render();
   })();
 })();

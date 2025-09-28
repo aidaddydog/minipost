@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="zh-CN"><head>
+  <meta charset="utf-8" />
+  <title>更新日志</title>
+  <link rel="stylesheet" href="/modules/_themes/default/root.css" />
+  <link rel="stylesheet" href="/modules/system_settings/system_upgrade/frontend/static/system_upgrade.css" />
+  <script src="/modules/common/frontend/static/shell_api.js"></script>
+  <style>
+    body{ padding:16px; }
+    textarea{ width:100%; height:60vh; }
+    .row{ margin-top:12px; display:flex; justify-content:flex-end; gap:8px; }
+  </style>
+</head><body>
+  <h3 style="margin:0 0 10px;">更新日志</h3>
+  <textarea id="logText" readonly></textarea>
+  <div class="row">
+    <button class="btn btn--black" id="btnClose">关闭</button>
+  </div>
+  <script>
+    (function(){
+      const p = new URLSearchParams(location.search);
+      const id = p.get('id');
+      const c = p.get('c');
+      function setText(v){ document.getElementById('logText').value = v || '（日志为空）'; }
+      if(c){
+        try{ setText(decodeURIComponent(escape(atob(c)))); }
+        catch(err){ setText('（无法解析日志内容）'); }
+      }else if(id){
+        const api = '/api/settings/system_settings/system_upgrade/history/' + encodeURIComponent(id) + '/log';
+        fetch(api).then(r=>r.json()).then(data=>{
+          const v = (data && (data.data && data.data.log)) || (data && data.log) || '';
+          setText(v);
+        }).catch(err=>{ setText('加载失败：' + err); });
+      } else {
+        setText('（未指定日志）');
+      }
+      document.getElementById('btnClose').onclick = ()=> ShellAPI.closeModal();
+    })();
+  </script>
+</body></html>

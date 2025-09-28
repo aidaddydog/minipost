@@ -9,6 +9,8 @@ module:
   frontend:
     templates:
       - modules/system_settings/system_upgrade/frontend/templates/system_upgrade.html
+      - modules/system_settings/system_upgrade/frontend/templates/modals/settings.html
+      - modules/system_settings/system_upgrade/frontend/templates/modals/log.html
     static:
       - modules/system_settings/system_upgrade/frontend/static/system_upgrade.css
       - modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
