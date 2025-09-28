@@ -61,7 +61,7 @@
     const css = `
 :root{
   /* 统一可调：淡淡的透明模糊（你也可在模块页或壳层通过 :root 覆盖成 6px、8px 等） */
-  --mask-blur: 6px;
+  --mask-blur: 2px;
   --mask-saturate: 1.0;
 }
 
