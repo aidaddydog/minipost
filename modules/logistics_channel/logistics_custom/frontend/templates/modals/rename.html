@@ -4,8 +4,6 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>重命名物流</title>
-  <link rel="stylesheet" href="/modules/_themes/default/root.css" />
-  <link rel="stylesheet" href="/modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css" />
   <script src="/modules/common/frontend/static/shell_api.js"></script>
   <style>
     body{ margin:0; padding:16px; }
@@ -16,7 +14,6 @@
   </style>
 </head>
 <body>
-
   <div class="form" role="form" aria-label="重命名物流">
     <div class="row">
       <label for="newName">新的物流名称*</label>
@@ -28,20 +25,41 @@
     </div>
   </div>
   <script>
-    const API = { update: id => '/api/logistics/custom/' + encodeURIComponent(id) };
+    const API_BASES = Array.isArray(parent.__API_BASES__) && parent.__API_BASES__.length
+      ? parent.__API_BASES__ : (parent.__API_BASE__ ? [String(parent.__API_BASE__)] : ['/api','/api/v1','/v1/api']);
+    const buildURL = (b,p)=> b.replace(/\/+$/,'') + '/' + p.replace(/^\/+/,'');
+
+    async function apiPut(path, json){
+      let lastErr = null;
+      for(const base of API_BASES){
+        const url = buildURL(base, path);
+        try{
+          const res = await fetch(url, { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify(json) });
+          const txt = await res.text();
+          let data={}; try{ data = txt? JSON.parse(txt):{}; }catch(e){ data={ errors:[{message:'Invalid JSON'}] }; }
+          if(res.status===404){ lastErr = new Error('[404] '+url); continue; }
+          if(!res.ok){ throw new Error((data.errors||[]).map(e=>e.message).join('; ') || (res.status+' '+res.statusText)); }
+          return data;
+        }catch(e){ lastErr = e; }
+      }
+      throw lastErr || new Error('All API bases failed');
+    }
+
     const params = new URLSearchParams(location.search);
     const id = params.get('id'); const cur = params.get('name')||'';
     document.getElementById('newName').value = cur;
-    document.getElementById('btnCancel').onclick = ()=> ShellAPI.closeModal();
+
+    document.getElementById('btnCancel').onclick = ()=> parent.ShellAPI.closeModal();
     document.getElementById('btnOk').onclick = async ()=>{
       const name = document.getElementById('newName').value.trim(); if(!name){ alert('请输入名称'); return; }
       try{
-        const res = await fetch(API.update(id), { method:'PUT', headers:{'Content-Type':'application/json'}, body: JSON.stringify({ provider_name: name }) });
-        if(!res.ok){ throw new Error(await res.text()); }
-        ShellAPI.emitResult('logistics_custom','renamed',{ id, name }); ShellAPI.closeModal();
-      }catch(err){ alert('重命名失败：'+(err.message||err)); }
+        await apiPut('/logistics/custom/'+encodeURIComponent(id), { provider_name: name });
+        parent.ShellAPI.emitResult('logistics_custom','renamed',{ id, name });
+        parent.ShellAPI.closeModal();
+      }catch(err){
+        alert('重命名失败：' + (err.message||err));
+      }
     };
   </script>
-
 </body>
 </html>
