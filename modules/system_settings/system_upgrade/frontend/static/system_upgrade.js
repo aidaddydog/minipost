@@ -15,7 +15,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
 (function(){
   const ROOT = document.getElementById('system-upgrade-app');
   const API_BASE = '/api/settings/system_settings/system_upgrade';
-  function _hideShellMask(){ /* removed arbitration */ }, '*'); }catch(e){} }
+  function _hideShellMask(){ try{ window.parent && window.parent.postMessage({type:'shell-mask', action:'hide', source:'module'}, '*'); }catch(e){} }
 
 
   // 工具
