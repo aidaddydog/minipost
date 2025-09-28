@@ -1,11 +1,11 @@
 # -*- coding: utf-8 -*-
 """
 快照存储（文件制）
-- 存放：data/system_upgrade/history.jsonl
+- 存放：<repo>/data/system_upgrade/history.jsonl（或 UPGRADE_DATA_DIR 指定目录）
 - 设计要点：
-  1) 不在模块导入期做任何写操作（避免路由加载被异常中断）
-  2) 基准路径优先读环境变量 UPGRADE_DATA_DIR；否则回落到“项目根/data/system_upgrade”
-  3) 读不到/写失败一律“软失败”，接口仍可返回空列表，避免前端空白
+  1) 导入期不做任何写操作（避免路由加载被异常中断）
+  2) 基准路径优先读环境变量 UPGRADE_DATA_DIR；否则落在“<repo>/data/system_upgrade”
+  3) 读不到/写失败“软失败”，接口仍可返回空列表，避免前端空白
 """
 from __future__ import annotations
 import os, json, uuid, time
@@ -13,8 +13,8 @@ from pathlib import Path
 from typing import Dict, Any, List, Optional
 
 # 计算项目根：本文件位于 modules/system_settings/system_upgrade/backend/services
-# 回溯 4 层到仓库根：.../modules -> .../minipost-main
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# 回溯 5 层到仓库根：.../modules/system_settings/system_upgrade/backend/services -> .../minipost-main
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 
 # 数据目录：优先环境变量；否则 <repo>/data/system_upgrade
 DATA_DIR = Path(os.getenv("UPGRADE_DATA_DIR") or (_REPO_ROOT / "data" / "system_upgrade"))
@@ -24,7 +24,7 @@ def _ensure_dir() -> None:
     try:
         DATA_DIR.mkdir(parents=True, exist_ok=True)
     except Exception:
-        # 不能因为目录权限问题而让模块导入或接口调用崩溃
+        # 不让目录权限问题影响接口可用性
         pass
 
 def _read_all() -> List[Dict[str, Any]]:
