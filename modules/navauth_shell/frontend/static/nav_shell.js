@@ -31,18 +31,13 @@
     const Z_SHELL_MASK   = 5000;
     const Z_IFRAME_ELEV  = 6000; // 仅在 module 弹窗时使用
 
-    const css = `
+    
+const css = `
 :root{
-  /* 页签 Ink 参数（与演示一致） */
   --tab-text-ml:37px;
   --tab-ink-height:2px; --tab-ink-radius:999px; --tab-ink-color:#000;
   --tab-ink-pad-x:-8px; --tab-ink-ml:6px; --tab-ink-mt:-1px;
-
-  /* 模糊强度：淡淡效果（无颜色） */
-  --mask-blur: 8px;
-  --mask-saturate: 1.0;
 }
-
 /* 页签 Ink（滑动圆角线） */
 .tabs{ position:relative; z-index:2; }
 .tab__text{ display:inline-block; margin-left:var(--tab-text-ml); }
@@ -56,120 +51,25 @@
     width     var(--anim-speed,.25s) var(--anim-ease,cubic-bezier(.22,.61,.36,1));
   z-index:4; pointer-events:none; opacity:1;
 }
-
-/* 🚑 修复：iframe 默认 300px 导致内容“变窄” —— 显式拉满到容器宽度 */
-.tabrow .tab-wrap{ min-width:0; } /* 防止 flex 子项因 min-width:auto 产生意外挤压 */
+/* iframe 宽度修复 */
+.tabrow .tab-wrap{ min-width:0; }
 .tabrow .tab-wrap .tabcard .tabpanel iframe{
   width:100%; display:block; border:0; background:transparent;
 }
-
-/* 壳层“单一灰层”：仅透明模糊（不叠加任何颜色） */
-.shell-mask{
-  position:fixed; inset:0; width:100vw; height:100vh;
-  background: transparent;
-  -webkit-backdrop-filter: saturate(var(--mask-saturate)) blur(var(--mask-blur));
-  backdrop-filter:         saturate(var(--mask-saturate)) blur(var(--mask-blur));
-  opacity:0; pointer-events:none; transition:opacity .18s ease;
-  z-index:${Z_SHELL_MASK};
-}
-html.mask-show .shell-mask{ opacity:1; }
-
-/* 仲裁模式：
- * - module：灰层需拦截壳层背景；并仅提升 #tabCard/#tabPanel/iframe 到灰层之上
- * - shell ：灰层仅做模糊，不拦截；壳层弹窗强制置顶
- */
-html.mask-mode--module .shell-mask{ pointer-events:auto; }
-html.mask-mode--shell  .shell-mask{ pointer-events:none; }
-
-/* module 弹窗：仅提升卡片与面板（以及 iframe） */
-html.mask-mode--module #tabCard,
-html.mask-mode--module #tabPanel{
-  position: relative; z-index:${Z_IFRAME_ELEV};
-}
-html.mask-mode--module #tabPanel iframe{
-  position: relative; z-index:${Z_IFRAME_ELEV};
-}
-
-/* shell 弹窗：通用选择器强制置顶（高于灰层） */
-html.mask-mode--shell .modal,
-html.mask-mode--shell [role="dialog"][aria-modal="true"],
-html.mask-mode--shell dialog[open],
-html.mask-mode--shell .ant-modal-wrap,
-html.mask-mode--shell .ant-drawer-mask + .ant-drawer,
-html.mask-mode--shell .ant-modal-root,
-html.mask-mode--shell .el-dialog__wrapper,
-html.mask-mode--shell .layui-layer,
-html.mask-mode--shell .van-overlay + .van-popup{
-  position: relative; z-index:${Z_IFRAME_ELEV + 1000} !important;
-}
-
-/* ===== 壳层统一弹窗（屏幕级） ===== */
-.shell-modal{ position:fixed; inset:0; display:none; align-items:center; justify-content:center; z-index:${Z_IFRAME_ELEV + 1000}; }
-.shell-modal[aria-hidden="false"]{ display:flex; }
-.shell-modal__backdrop{ position:absolute; inset:0; background:rgba(0,0,0,.28); }
-.shell-modal__dialog{
-  position:relative; background:#fff; border-radius:12px; box-shadow:0 10px 30px rgba(0,0,0,.2);
-  width: min(920px, 92vw); max-height: 90vh; display:flex; flex-direction:column; overflow:hidden;
-}
-.shell-modal.is-sm .shell-modal__dialog{ width:min(560px,92vw); }
-.shell-modal.is-lg .shell-modal__dialog{ width:min(1200px,96vw); }
-.shell-modal.is-full .shell-modal__dialog{ width:96vw; height:94vh; }
-.shell-modal__header{ display:flex; align-items:center; justify-content:space-between; padding:12px 16px; border-bottom:1px solid rgba(0,0,0,.06); }
-.shell-modal__title{ font-size:16px; margin:0; }
-.shell-modal__close{ border:0; background:transparent; font-size:20px; line-height:1; cursor:pointer; }
-.shell-modal__body{ position:relative; padding:0; }
-.shell-modal__body iframe{ display:block; width:100%; border:0; background:transparent; min-height:50vh; }
 `;
-    const style = document.createElement('style');
+const style = document.createElement('style');
+const style = document.createElement('style');
     style.id = OLD_ID;
     style.textContent = css;
     document.head.appendChild(style);
   })();
 
-  // -------------------- 壳层灰层节点 --------------------
-  const shellMask = (function ensureMask(){
-    let el = document.getElementById('shellMask');
-    if(!el){
-      el = document.createElement('div');
-      el.id = 'shellMask';
-      el.className = 'shell-mask';
-      document.body.appendChild(el);
-    }
-    return el;
-  })();
-
-  // -------------------- 仲裁状态 --------------------
-  let state = {
-    moduleBackdropActive: false, // iframe里是否有弹窗
-    shellModalActive:     false  // 壳层是否有弹窗
-  };
-
-  function applyMaskState(){
-    const doc = document.documentElement;
-    const show = state.moduleBackdropActive || state.shellModalActive;
-    doc.classList.toggle('mask-show', show);
-
-    // 模式切换
-    doc.classList.remove('mask-mode--module','mask-mode--shell');
-    if(!show){
-      document.documentElement.style.overflow = '';
-      return;
-    }
-    if(state.shellModalActive){
-      // 壳层弹窗优先级更高：灰层仅做模糊，且不拦截
-      doc.classList.add('mask-mode--shell');
-      document.documentElement.style.overflow = 'hidden';
-      return;
-    }
-    // 仅模块弹窗：灰层拦截壳层背景，提升卡片/iframe
-    doc.classList.add('mask-mode--module');
-    document.documentElement.style.overflow = 'hidden';
-  }
-  function hideMaskAll(){
-    state.moduleBackdropActive = false;
-    state.shellModalActive     = false;
-    applyMaskState();
-  }
+  // (removed) 壳层灰层节点已移除
+  const shellMask = null;
+// (removed) 仲裁状态已移除
+  const state = {};
+  function applyMaskState(){}
+  function hideMaskAll(){}
 
   
   // -------------------- 壳层统一弹窗（屏幕级，支持 iframe 承载） --------------------
@@ -256,18 +156,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
   })()
 window.shellModal = window.shellModal || shellModal;
 ;
-// -------------------- 与 iframe 联动（桥接脚本会 postMessage） --------------------
-  window.addEventListener('message', (e)=>{
-    const msg = e?.data || {};
-    if(msg && msg.type === 'shell-mask'){
-      const show   = msg.action === 'show' || msg.visible === true;
-      const source = msg.source || 'module';
-      if(source === 'module' || source === 'iframe'){
-        state.moduleBackdropActive = !!show;
-        applyMaskState();
-      }
-    }
-  });
+// (removed) 与 iframe 联动仲裁已移除（忽略 shell-mask）
   // Hook: 记录 moduleBackdropActive 时间戳并启动 watchdog
   (function(){
     let watchdogTimer = 0; let tsShow = 0;
