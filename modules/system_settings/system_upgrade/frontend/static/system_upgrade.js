@@ -1,4 +1,4 @@
-/* Build: sys-upgrade patched v2 | 2025-09-28 */
+/* Build: sys-upgrade patched v3 (async fix) | 2025-09-28 */
 console.info('[SysUpgrade] patched build v2 loaded');
 /* --- PATCH: fixed HTML-escape helper h() to avoid syntax error --- */
 /* modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
@@ -247,7 +247,7 @@ console.info('[SysUpgrade] patched build v2 loaded');
     }catch(_){}
   }
 
-  async async function loadBranches(){
+  async function loadBranches(){
     try{
       const r = await jget(API_BASE + '/branches');
       state.branches = r.data?.branches || r.branches || [];
