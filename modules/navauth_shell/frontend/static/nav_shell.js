@@ -276,7 +276,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
           const ifr = document.querySelector('#tabPanel iframe');
           if(!ifr || !ifr.contentDocument){ return; }
           const doc = ifr.contentDocument;
-          const selectors = [
+                      const selectors = [
             '.modal.open',
             '.modal[aria-modal="true"]:not([aria-hidden="true"])',
             'dialog[open]',
