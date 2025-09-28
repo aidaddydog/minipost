@@ -19,6 +19,7 @@
   const tabsEl   = document.getElementById('tabs');
   const tabCard  = document.getElementById('tabCard');
   const tabPanel = document.getElementById('tabPanel');
+  const subRow  = document.getElementById('subRow');
 
   // -------------------- 注入样式（Ink + 透明模糊灰层 + 层级契约 + iframe 宽度修复） --------------------
   (function injectPatchCSS(){
@@ -213,6 +214,12 @@ html.mask-mode--shell .van-overlay + .van-popup{
   let lockedSubHref = '';
   let lockedTabHref = '';
 
+  // 预览状态与宽容窗
+  let hoverPath = '/';
+  let inSubRow = false;
+  let leaveTimer = null;
+
+
   function saveState(){
     try{
       localStorage.setItem(STORAGE_KEY, JSON.stringify({
@@ -241,17 +248,31 @@ html.mask-mode--shell .van-overlay + .van-popup{
     return Number.isFinite(n) ? n : fallback;
   }
 
+  function getGraceMs(){ return Math.max(0, cssVarNum('--sub-grace-ms', 220)); }
+  function currentVisualPath(){ return inSubRow ? hoverPath : (hoverPath || lockedPath); }
+
+
   // L1 胶囊位移
   let _pillRAF=0, _pillNext=null;
-  function movePillToEl(el){
+  function movePillToEl(el, opts={ instant:false }){
     if(!el) return;
     const left = el.offsetLeft - track.scrollLeft;
     const minw = cssVarNum('--pill-minw', 60);
     const width= Math.max(minw, el.offsetWidth);
+    if(opts.instant){
+      const prev = pill.style.transition;
+      pill.style.transition = 'none';
+      pill.style.width = width + 'px';
+      pill.style.transform = `translate(${left}px,-50%)`;
+      pill.style.opacity = 1;
+      void pill.offsetWidth;
+      pill.style.transition = prev || '';
+      return;
+    }
     _pillNext = { left, width };
     if(_pillRAF) return;
     _pillRAF = requestAnimationFrame(()=>{
-      _pillRAF=0;
+      _pillRAF = 0;
       if(!_pillNext) return;
       pill.style.width = _pillNext.width + 'px';
       pill.style.transform = `translate(${_pillNext.left}px,-50%)`;
@@ -259,10 +280,10 @@ html.mask-mode--shell .van-overlay + .van-popup{
       _pillNext=null;
     });
   }
-  track && track.addEventListener('scroll', ()=> movePillToL1Path(lockedPath));
-  function movePillToL1Path(path){
+  track && track.addEventListener('scroll', ()=> movePillToL1Path(currentVisualPath()));
+  function movePillToL1Path(path, opts={}){
     const a = [...track.querySelectorAll('a.link')].find(x=>x.dataset.path===path);
-    movePillToEl(a);
+    movePillToEl(a, opts);
   }
 
   // 页签 Ink
@@ -300,6 +321,31 @@ html.mask-mode--shell .van-overlay + .van-popup{
     }
   }
   window.addEventListener('resize', ()=> positionTabInk(tabsEl?.querySelector('.tab.active'), false));
+  // Hover 预览交互：一级离开 + 二级进入/离开 + 二级悬浮归属指示
+  track && track.addEventListener('pointerleave', ()=>{
+    clearTimeout(leaveTimer);
+    leaveTimer = setTimeout(()=>{
+      if(!inSubRow){
+        hoverPath = lockedPath;
+        movePillToL1Path(lockedPath);
+        renderSub();
+      }
+    }, getGraceMs());
+  });
+  subRow && subRow.addEventListener('pointerenter', ()=>{ inSubRow = true; clearTimeout(leaveTimer); });
+  subRow && subRow.addEventListener('pointerleave', ()=>{
+    inSubRow = false;
+    hoverPath = lockedPath;
+    movePillToL1Path(lockedPath, { instant:true });
+    renderSub();
+  });
+  subInner && subInner.addEventListener('pointerover', (e)=>{
+    const s = e.target.closest('a.sub'); if(!s) return;
+    const owner = s.getAttribute('data-owner');
+    const ownerEl = owner ? [...track.querySelectorAll('a.link')].find(a=>a.dataset.path===owner) : null;
+    if(ownerEl) movePillToEl(ownerEl);
+  });
+
 
   // 默认项选取（支持 YAML/后端 nav 的 default:true）
   function getCurrentL1(){ return items.find(x=>x.path===lockedPath) || items[0] || null; }
@@ -327,6 +373,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
       a.dataset.path = it.path;
       a.href  = it.path;
       a.textContent = it.title || it.path;
+      a.addEventListener('pointerenter', ()=>{ if(inSubRow) return; hoverPath = it.path; movePillToEl(a); renderSub(hoverPath, {preview:true}); });
       a.addEventListener('click',(e)=>{
         if(!USE_REAL_NAV) e.preventDefault();
         lockedPath = it.path;
@@ -346,16 +393,19 @@ html.mask-mode--shell .van-overlay + .van-popup{
     requestAnimationFrame(()=> movePillToL1Path(lockedPath));
   }
 
-  function renderSub(){
-    const l1 = getCurrentL1();
+  function renderSub(ownerPath=null, opts={preview:false}){
+    const l1 = ownerPath ? (items||[]).find(x=>x.path===ownerPath) : getCurrentL1();
     const subs = (l1?.children||[]).filter(s=>s.visible!==false);
     subInner.innerHTML = subs.map(s=>
-      `<a class="sub ${s.path===lockedSubHref?'active':''}" data-href="${s.path}" href="${s.path}">${s.title||s.path}</a>`
+      `<a class="sub ${(!opts.preview && s.path===lockedSubHref)?'active':''}" data-owner="${l1?.path||''}" data-href="${s.path}" href="${s.path}">${s.title||s.path}</a>`
     ).join('');
 
     subInner.querySelectorAll('a.sub').forEach(a=>{
+      a.addEventListener('pointerenter', ()=>{ if(inSubRow) return; hoverPath = it.path; movePillToEl(a); renderSub(hoverPath, {preview:true}); });
       a.addEventListener('click',(e)=>{
         if(!USE_REAL_NAV) e.preventDefault();
+        const owner = a.getAttribute('data-owner') || (l1?.path || lockedPath);
+        lockedPath = owner;
         lockedSubHref = a.dataset.href || '';
         const l3 = getCurrentL3();
         lockedTabHref = l3 ? l3.path : '';
@@ -363,7 +413,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
         subInner.querySelectorAll('a.sub').forEach(x=>x.classList.remove('active'));
         a.classList.add('active');
-        renderTabs(); loadTabContent(lockedTabHref);
+        renderL1(); renderSub(); renderTabs(); loadTabContent(lockedTabHref);
         hideMaskAll();
         if(USE_REAL_NAV && lockedSubHref) window.location.href = lockedSubHref;
       });
@@ -382,6 +432,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     ensureTabInk();
 
     tabsEl.querySelectorAll('a.tab').forEach(a=>{
+      a.addEventListener('pointerenter', ()=>{ if(inSubRow) return; hoverPath = it.path; movePillToEl(a); renderSub(hoverPath, {preview:true}); });
       a.addEventListener('click',(e)=>{
         if(!USE_REAL_NAV) e.preventDefault();
         lockedTabHref = a.dataset.href || '';
@@ -435,6 +486,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
     const l1 = items.find(x=>x.path===lockedPath) || items[0] || null;
     if(!l1){ items=[]; renderL1(); return; }
     lockedPath = l1.path;
+    hoverPath = lockedPath;
 
     const l2 = getCurrentL2();
     lockedSubHref = l2 ? l2.path : '';
