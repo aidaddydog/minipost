@@ -276,12 +276,14 @@ html.mask-mode--shell .van-overlay + .van-popup{
           const ifr = document.querySelector('#tabPanel iframe');
           if(!ifr || !ifr.contentDocument){ return; }
           const doc = ifr.contentDocument;
-                      const selectors = [
+                                const selectors = [
             '.modal.open',
             '.modal[aria-modal="true"]:not([aria-hidden="true"])',
             'dialog[open]',
             '[role="dialog"][aria-modal="true"]:not([aria-hidden="true"])',
-            '.ant-modal-wrap','.ant-modal-root','.el-overlay','.layui-layer','.layui-layer-shade','.van-overlay','.van-overlay + .van-popup',
+            '.ant-modal-wrap','.ant-modal-root','.el-overlay',
+            '.layui-layer','.layui-layer-shade',
+            '.van-overlay','.van-overlay + .van-popup',
             '#moduleBlurMask','.module-blur-mask'
           ].join(',');
           let anyVisible = false;

@@ -1,9 +1,8 @@
 /* modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
- * 自定义物流 · 前端（简版稳定实现）
+ * 自定义物流 · 前端（稳定实现）
  * - 构建页面骨架（toolbar/table/pager）
  * - 调用后端 API 渲染列表、分页
  * - “新增/重命名/删除”走壳层统一弹窗（ShellAPI）
- * - 只用最基础的 DOM API，避免复杂依赖，提升稳定性
  */
 (function(){
   const ROOT_ID = 'logistics-custom-app';
@@ -179,7 +178,7 @@
       if(state.page < totalPage){ state.page++; refresh(); }
     });
     $('#btnNew').addEventListener('click', ()=>{
-      ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules/logistics_channel/logistics_custom/frontend/templates/modals/new.html' });
+      ShellAPI.openModal({ title:'新增自定义物流', size:'md', url:'/modules_static/logistics_channel/logistics_custom/frontend/templates/modals/new.html' });
     });
   }
 
@@ -193,10 +192,10 @@
         if(sub){ const show = sub.style.display==='none'; sub.style.display = show ? '' : 'none'; if(show) loadSubtable(sub); }
       }else if(act==='rename'){
         const row = state.list.find(x=> String(x.id)===String(id));
-        const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/rename.html?id=${id}&name=${encodeURIComponent(row?.provider_name||'')}`;
+        const url = `/modules_static/logistics_channel/logistics_custom/frontend/templates/modals/rename.html?id=${id}&name=${encodeURIComponent(row?.provider_name||'')}`;
         ShellAPI.openModal({ title:'重命名物流', size:'sm', url });
       }else if(act==='delete'){
-        const url = `/modules/logistics_channel/logistics_custom/frontend/templates/modals/delete.html?id=${id}`;
+        const url = `/modules_static/logistics_channel/logistics_custom/frontend/templates/modals/delete.html?id=${id}`;
         ShellAPI.openModal({ title:'删除确认', size:'sm', url });
       }
     });
