@@ -253,7 +253,9 @@ html.mask-mode--shell .van-overlay + .van-popup{
       }
     };
     return api;
-  })();
+  })()
+window.shellModal = window.shellModal || shellModal;
+;
 // -------------------- 与 iframe 联动（桥接脚本会 postMessage） --------------------
   window.addEventListener('message', (e)=>{
     const msg = e?.data || {};
@@ -691,19 +693,19 @@ html.mask-mode--shell .van-overlay + .van-popup{
 
     if(msg.type === 'open-shell-modal'){
       const p = msg.payload || {};
-      shellModal.open({ title:p.title, url:p.url, size:p.size||'md', onCloseEmit: p.onClose?.emit || '' });
+      window.shellModal.open({ title:p.title, url:p.url, size:p.size||'md', onCloseEmit: p.onClose?.emit || '' });
       return;
     }
     if(msg.type === 'update-shell-modal'){
-      shellModal.update(msg.payload||{});
+      window.shellModal.update(msg.payload||{});
       return;
     }
     if(msg.type === 'close-shell-modal'){
-      shellModal.close(msg.payload||null);
+      window.shellModal.close(msg.payload||null);
       return;
     }
     if(msg.type === 'shell-modal-result'){
-      shellModal.forwardResult({ scope: msg.scope, action: msg.action, data: msg.data||{} });
+      window.shellModal.forwardResult({ scope: msg.scope, action: msg.action, data: msg.data||{} });
       return;
     }
   });
@@ -712,7 +714,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
 (function(){
   function ensureShellModal(){
     // 若页面已有壳层弹窗实现，直接复用
-    if (window.shellModal && typeof window.shellModal.open === 'function') return window.shellModal;
+    if (window.shellModal && typeof window.window.shellModal.open === 'function') return window.shellModal;
 
     // 动态创建容器（如 nav_shell.html 已有 #shellModalRoot 会直接复用）
     let root = document.getElementById('shellModalRoot');
