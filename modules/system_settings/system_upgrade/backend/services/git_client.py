@@ -15,8 +15,8 @@ class GitInfo:
     branches: List[str]
     current: str
 
-# 仓库根：优先环境变量 GIT_REPO_DIR；否则回溯到项目根（parents[4]）
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+# 仓库根：优先环境变量 GIT_REPO_DIR；否则回溯到项目根（parents[5]）
+_REPO_ROOT = Path(__file__).resolve().parents[5]
 REPO_DIR = Path(os.getenv("GIT_REPO_DIR") or _REPO_ROOT)
 
 def _run(cmd: str, cwd: Path) -> Tuple[int, str, str]:
@@ -33,7 +33,7 @@ def list_branches() -> GitInfo:
     if not (REPO_DIR / ".git").exists():
         return GitInfo(branches=["main", "stable"], current="main")
 
-    code, out, err = _run("git branch --all --format='%(refname:short)'", REPO_DIR)
+    code, out, err = _run("git branch --all --format=%(refname:short)", REPO_DIR)
     if code != 0:
         return GitInfo(branches=["main"], current="main")
     brs = [s.strip().replace("remotes/origin/", "") for s in out.splitlines() if s.strip()]
