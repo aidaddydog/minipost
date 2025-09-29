@@ -182,7 +182,7 @@ html.mask-mode--shell .van-overlay + .van-popup{
       if(!root){
         root = document.createElement('div');
         root.id = 'shellModalRoot';
-        root.className = 'shell-modal modal';
+        root.className = 'shell-modal';
         root.setAttribute('role','dialog');
         root.setAttribute('aria-modal','true');
         root.setAttribute('aria-hidden','true');
@@ -852,7 +852,7 @@ window.shellModal = window.shellModal || shellModal;
       root = document.createElement('div');
       // 注意：保留 .modal 以兼容旧选择器，但我们有更高优先级的 .shell-modal 规则覆盖它
       root.id = 'shellModalRoot';
-      root.className = 'shell-modal modal';
+      root.className = 'shell-modal';
       root.setAttribute('role','dialog');
       root.setAttribute('aria-modal','true');
       root.setAttribute('aria-hidden','true');
