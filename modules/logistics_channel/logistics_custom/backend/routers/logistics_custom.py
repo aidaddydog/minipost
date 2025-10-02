@@ -14,7 +14,9 @@ from pydantic import BaseModel, Field, field_validator
 from sqlalchemy import create_engine, select, func, text, update
 from sqlalchemy.orm import sessionmaker
 
-from ..models.logistics_custom import Base, LogisticsCustom, LogisticsCustomChannel, STATUS_ENUM, TRANSPORT_MODE_ENUM
+from modules.logistics_channel.logistics_custom.backend.models.logistics_custom import (
+    Base, LogisticsCustom, LogisticsCustomChannel, STATUS_ENUM, TRANSPORT_MODE_ENUM
+)
 
 # ---------- DB 连接（独立于全局 ORM；读取环境变量） ----------
 def _dsn() -> str:
