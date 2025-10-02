@@ -1,0 +1,7 @@
+# 应用通用配置（非敏感）
+app:
+  name: "minipost"
+  description: "Minimal modules-first shell + RBAC + nav aggregator"
+  version: "0.1.0"
+server:
+  request_log_sample_rate: 1.0

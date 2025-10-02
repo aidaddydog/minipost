@@ -1,0 +1,67 @@
+:root{
+  --upgrade-toolbar-gap: 12px;
+}
+
+/* 页面工具行 */
+.up-toolbar{
+  background: var(--filter-card-bg);
+  border-radius: var(--filter-card-radius);
+  padding: var(--filter-card-py) var(--filter-card-px);
+  margin: var(--filter-card-mt) 0 var(--filter-card-mb);
+  display: flex; flex-wrap: wrap; gap: var(--upgrade-toolbar-gap); align-items: center;
+  font-family: var(--filter-card-font-family);
+  font-size: var(--filter-card-font-size);
+  line-height: var(--filter-card-line-height);
+}
+.up-toolbar .left{ display:flex; flex-wrap:wrap; gap:var(--upgrade-toolbar-gap); align-items:center; }
+.up-toolbar .right{ margin-left:auto; display:flex; gap:var(--upgrade-toolbar-gap); align-items:center; }
+
+/* 表格 */
+.table-wrap{ margin:var(--table-wrap-mt) 0 var(--table-wrap-mb); background:var(--table-wrap-bg); border-radius:var(--table-wrap-radius); }
+.table-scroll{ max-height:var(--table-max-h); overflow-y:auto; overflow-x:hidden; padding-right:8px; }
+.table{ width:100%; border-collapse:collapse; border-spacing:0; background:transparent; font-family:var(--table-font-family); }
+.table th, .table td{ padding:12px 10px; text-align:left; color:var(--table-ink); font-size:var(--table-font-size);
+  border-bottom:1px solid var(--table-line); background:var(--table-row-bg); transition:background .15s ease; }
+.table thead th{ color:var(--table-head-ink); font-weight:500; background:var(--table-head-bg);
+  position:sticky; top:var(--table-head-sticky-top); z-index:1; box-shadow:var(--table-head-shadow); white-space:nowrap; }
+
+.hidden{ display:none !important; }
+
+/* 自适应高度（卡片不超过视口）由 JS 计算 .table-scroll 高度 */
+
+
+/* 下拉菜单基元（与演示一致） */
+.cselect{ position:relative; display:inline-block; }
+.cselect .cs-toggle{
+  height: var(--select-h); min-width: var(--select-minw); border-radius: var(--select-radius);
+  border: var(--select-border-width) solid var(--ctl-border); background: var(--ctl-bg);
+  color: var(--ctl-ink); padding: 0 var(--ctl-px); font-size: var(--ctl-font-size);
+  display: inline-flex; align-items:center; gap:8px; user-select:none; cursor:pointer;
+}
+.cselect .menu{ position:absolute; top:calc(100% + 6px); left:0; background:#fff;
+  border: var(--menu-border-width) solid var(--menu-border-color);
+  border-radius: var(--menu-radius); box-shadow: var(--menu-shadow);
+  min-width: var(--menu-minw); max-height: var(--menu-maxh); overflow:auto; display:none; z-index:300;
+}
+.cselect.open .menu{ display:block; }
+.cselect .menu a{ display:block; height: var(--menu-item-h); line-height: var(--menu-item-h);
+  padding:0 var(--menu-item-px); color:#111827; text-decoration:none; font-size: var(--menu-font-size); }
+.cselect .menu a:hover{ background:#f9fafb }
+.cselect .menu a[aria-selected="true"]{ background:#f3f4f6; font-weight:600; }
+.sr-select{ position:absolute; inset:0; width:0; height:0; opacity:0; pointer-events:none; }
+
+/* --- PATCH: ensure module modals are hidden by default (avoid initial shell blur) --- */
+.modal{
+  display: none;
+  position: fixed; inset: 0;
+  align-items: center; justify-content: center;
+  z-index: 200;
+  background: transparent; /* module uses shell blur, no dark overlay */
+}
+.modal .box{
+  background: var(--page-bg, #fff);
+  border-radius: var(--card-radius, 10px);
+  padding: 16px;
+  min-width: 420px;
+  box-shadow: var(--modal-shadow, 0 15px 35px rgba(0,0,0,.12));
+}

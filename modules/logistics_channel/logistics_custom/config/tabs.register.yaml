@@ -1,0 +1,8 @@
+# modules/logistics_channel/logistics_custom/config/tabs.register.yaml
+"/logistics/channel":
+  - key: custom
+    text: 自定义物流
+    href: /logistics/channel/custom
+    order: 60
+    template: modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
+    default: true
