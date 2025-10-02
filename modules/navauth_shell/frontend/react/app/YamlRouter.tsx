@@ -45,7 +45,7 @@ function flattenTabs(root: AnyObj): TabLike[] {
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
-// === 关键映射：旧模板 → 模块内 React 页面（与旧 YAML 完全兼容） ===
+// 旧模板 → 模块内 React 页面（与旧 YAML 完全兼容）
 //   modules/<domain>/<feature>/frontend/templates/<page>.html
 // → modules/<domain>/<feature>/frontend/react/pages/<page>.tsx
 function htmlTemplateToReactModulePath(template: string): string | null {
@@ -54,20 +54,16 @@ function htmlTemplateToReactModulePath(template: string): string | null {
   return `modules/${m[1]}/frontend/react/pages/${m[2]}.tsx`;
 }
 
-// === 合法的 glob 写法（必须以 ./ 或 / 开头） ===
-// 相对当前位置（本文件位于 modules/navauth_shell/frontend/react/app/）
+// 合法的 glob 写法（必须以 ./ 或 / 开头）
 const gRel = import.meta.glob(
   "../../../../modules/**/frontend/react/pages/**/*.{tsx,jsx}"
 );
-// 从项目根开始（Vite 会把以 / 开头解析为项目根）
 const gAbs = import.meta.glob(
   "/modules/**/frontend/react/pages/**/*.{tsx,jsx}"
 );
-
-// 合并两个来源
 const modulesMap: Record<string, any> = { ...gRel, ...gAbs };
 
-/** 宽容匹配：不同 glob 生成的 key 前缀不同，这里用 endsWith 对齐到规范相对路径 */
+// 宽容匹配（不同 glob 生成的 key 前缀不同）
 function pickModuleLoader(reactRelativePath: string): any | null {
   for (const k in modulesMap) {
     if (k.endsWith(reactRelativePath)) return modulesMap[k];
@@ -99,36 +95,34 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
     }
   });
 
-  // 若 YAML 未挂 /login 或映射失败，强制兜底挂载登录页
-  if (!foundPaths.has("/login")) {
-    const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
-    const loginLoader = pickModuleLoader(loginRel);
-    if (loginLoader) {
-      const Login = React.lazy(loginLoader as any);
-      children.push({
-        path: "/login",
-        element: (
-          <React.Suspense fallback={<div className="p-4 text-sm text-slate-600">加载中…</div>}>
-            <Login />
-          </React.Suspense>
-        ),
-      });
-    }
+  // 顶层独立挂载 /login（无导航）
+  const topLevel: RouteObject[] = [];
+  const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
+  const loginLoader = pickModuleLoader(loginRel);
+  if (loginLoader) {
+    const Login = React.lazy(loginLoader as any);
+    topLevel.push({
+      path: "/login",
+      element: (
+        <React.Suspense fallback={<div className="p-4 text-sm text-slate-600">加载中…</div>}>
+          <Login />
+        </React.Suspense>
+      ),
+    });
   }
 
-  // 兜底 404
-  children.push({ path: "*", element: <NotFound /> });
+  // 应用主壳（带导航）的其它业务路由
+  const appShell: RouteObject = {
+    path: "/",
+    element: <ShellLayout />,
+    children: [
+      { index: true, element: <div className="p-4 text-sm text-slate-600">欢迎使用 minipost（React 外壳）。</div> },
+      ...children.filter(r => r.path !== "/login"),
+      { path: "*", element: <NotFound /> },
+    ],
+  };
 
-  return [
-    {
-      path: "/",
-      element: <ShellLayout />,
-      children: [
-        { index: true, element: <div className="p-4 text-sm text-slate-600">欢迎使用 minipost（React 外壳）。</div> },
-        ...children,
-      ],
-    },
-  ];
+  return [...topLevel, appShell];
 }
 
 export function YamlRouter() {
