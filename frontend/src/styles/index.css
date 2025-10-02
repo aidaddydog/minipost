@@ -2,7 +2,7 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 继承服务器主题变量（来自 _themes/default/root.css） */
+/* 继承服务器主题变量（保持旧 UI 的配色与圆角） */
 :root{
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -13,6 +13,7 @@
   --ring: 222.2 84% 4.9%;
 }
 
+/* 单一 Layer 宿主 + 背景模糊层（修复 filter/backdrop stacking） */
 #layer-root[data-layer-host]{
   position: fixed;
   inset: 0;
@@ -25,11 +26,17 @@
   background: rgba(0,0,0,.28);
   -webkit-backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
   backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  opacity: 0; transition: opacity .15s ease;
+  opacity: 0;
+  transition: opacity .15s ease;
   pointer-events: auto;
 }
 #layer-root .lm-backdrop.show{ opacity: 1; }
+
+/* 任何 Portal 出现在 layer-root 下都可点（否则被 pointer-events:none 吃掉） */
 #layer-root > * { pointer-events: auto; }
 
+/* 阻塞型层打开时，禁止主体滚动 */
 html[data-layer-locked="true"],
-body[data-layer-locked="true"]{ overflow: hidden; }
+body[data-layer-locked="true"]{
+  overflow: hidden;
+}
