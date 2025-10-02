@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* 继承服务器主题变量（保持旧 UI 的配色与圆角） */
+:root{
+  --background: 0 0% 100%;
+  --foreground: 222.2 84% 4.9%;
+  --primary: 222.2 47.4% 11.2%;
+  --primary-foreground: 210 40% 98%;
+  --border: 214.3 31.8% 91.4%;
+  --input: 214.3 31.8% 91.4%;
+  --ring: 222.2 84% 4.9%;
+}
+
+/* 单一 Layer 宿主 + 背景模糊层（修复 filter/backdrop stacking） */
+#layer-root[data-layer-host]{
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  pointer-events: none;
+}
+#layer-root .lm-backdrop{
+  position: absolute;
+  inset: 0;
+  background: rgba(0,0,0,.28);
+  -webkit-backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
+  backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
+  opacity: 0;
+  transition: opacity .15s ease;
+  pointer-events: auto;
+}
+#layer-root .lm-backdrop.show{ opacity: 1; }
+#layer-root > * { pointer-events: auto; }
+
+html[data-layer-locked="true"],
+body[data-layer-locked="true"]{
+  overflow: hidden;
+}

@@ -1,0 +1,28 @@
+需要删除的旧文件/目录（彻底放弃旧模板/旧 JS；保留 YAML 与主题变量）：
+
+1) 壳模块（navauth_shell）的旧前端：
+   - modules/navauth_shell/frontend/templates/nav_shell.html
+   - modules/navauth_shell/frontend/static/nav_shell.js
+   - modules/navauth_shell/frontend/static/mask_bridge.js
+   - modules/navauth_shell/frontend/static/shell_api.js
+
+2) 系统更新（system_upgrade）的旧前端：
+   - modules/system_settings/system_upgrade/frontend/templates/system_upgrade.html
+   - modules/system_settings/system_upgrade/frontend/templates/modals/settings.html
+   - modules/system_settings/system_upgrade/frontend/templates/modals/log.html
+   - modules/system_settings/system_upgrade/frontend/static/system_upgrade.js
+
+3) 自定义物流（logistics_custom）的旧前端：
+   - modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
+   - modules/logistics_channel/logistics_custom/frontend/templates/modals/new.html
+   - modules/logistics_channel/logistics_custom/frontend/templates/modals/rename.html
+   - modules/logistics_channel/logistics_custom/frontend/templates/modals/delete.html
+   - modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
+
+4) 登录页（auth_login）的旧前端：
+   - modules/auth_login/frontend/templates/auth_login.html
+   - modules/auth_login/frontend/static   （整个目录）
+
+5) 统一保留：
+   - modules/_themes/default/root.css  （主题 Token；请勿删除）
+   - 所有 config/*.yaml （menu.register / tabs.register / permissions.register / module.meta）
