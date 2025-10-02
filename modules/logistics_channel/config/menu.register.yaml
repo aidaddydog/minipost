@@ -1,0 +1,7 @@
+# modules/logistics_channel/config/menu.register.yaml
+物流:
+  - text: 物流渠道
+    href: /logistics/channel
+    order: 1
+    icon: ""
+    default: true

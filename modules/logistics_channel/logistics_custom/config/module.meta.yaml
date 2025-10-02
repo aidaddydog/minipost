@@ -1,0 +1,20 @@
+module:
+  key: logistics_custom
+  title: 自定义物流
+  version: 0.1.0
+  build_at: "2025-09-26 18:27:31 UTC"
+  backend:
+    routers:
+      - modules/logistics_channel/logistics_custom/backend/routers/logistics_custom.py
+    migrations:
+      - modules/logistics_channel/logistics_custom/backend/migrations/20250926_0001_logistics_custom_init.sql
+  frontend:
+    templates:
+      - modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
+    static:
+      - modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.css
+      - modules/logistics_channel/logistics_custom/frontend/static/logistics_custom.js
+  permissions:
+    - logistics.view
+    - logistics.custom.view
+    - logistics.custom.manage
