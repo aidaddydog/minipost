@@ -1,7 +1,0 @@
-如果你的 app/main.py 还未开启 SPA 回退，请执行以下最小变更：
-
-- 当存在 /static/assets/index.html 时：
-  - GET "/" 返回该文件内容；
-  - GET "/{full_path:path}"（排除 /api、/static、/modules、/modules_static、/healthz 等）同样返回该文件内容。
-
-（你的仓库若已按上一版补丁修改，则无需改动该文件）
