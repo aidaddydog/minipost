@@ -1,0 +1,6 @@
+# modules/logistics_custom/config/tabs.register.yaml
+tabs:
+  /logistics/custom:
+    - key: list
+      text: 列表
+      href: /logistics/custom/list

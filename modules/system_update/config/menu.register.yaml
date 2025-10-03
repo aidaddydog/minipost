@@ -1,0 +1,5 @@
+# modules/system_update/config/menu.register.yaml
+l2:
+  - text: 系统更新
+    href: /settings/system-update
+    order: 980

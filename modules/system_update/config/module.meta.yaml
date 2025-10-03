@@ -1,0 +1,4 @@
+# modules/system_update/config/module.meta.yaml
+module: system_update
+title: 系统更新
+version: 0.1.0

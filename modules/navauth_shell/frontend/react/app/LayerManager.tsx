@@ -1,42 +1,57 @@
-import React, { createContext, useContext, useMemo, useState, ReactNode } from "react";
+import React, { ReactNode } from "react";
 import { createPortal } from "react-dom";
 
-type LayerItem = { id: number; node: ReactNode };
-type Ctx = {
-  mount(node: ReactNode): number;
-  update(id: number, node: ReactNode): void;
-  unmount(id: number): void;
-};
-const LayerCtx = createContext<Ctx | null>(null);
+type Entry = { id: number; node: ReactNode };
+class LayerManagerImpl {
+  private host: HTMLElement | null = null;
+  private entries: Entry[] = [];
+  private idSeq = 1;
 
-export function useLayer() {
-  const ctx = useContext(LayerCtx);
-  if (!ctx) throw new Error("useLayer must be used within <LayerManager/>");
-  return ctx;
+  private ensureHost() {
+    if (!this.host) {
+      const el = document.createElement("div");
+      el.id = "layer-host";
+      Object.assign(el.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483647" });
+      document.body.appendChild(el);
+      this.host = el;
+    }
+  }
+
+  mount(node: ReactNode) {
+    this.ensureHost();
+    const id = this.idSeq++;
+    this.entries.push({ id, node });
+    this.rerender();
+    return id;
+  }
+
+  update(id: number, node: ReactNode) {
+    const it = this.entries.find(e => e.id === id);
+    if (it) { it.node = node; this.rerender(); }
+  }
+
+  unmount(id: number) {
+    this.entries = this.entries.filter(e => e.id !== id);
+    this.rerender();
+  }
+
+  private rerender() {
+    if (!this.host) return;
+    const content = (
+      <>
+        {this.entries.map(e => (
+          <div key={e.id} style={{ pointerEvents: "auto" }}>{e.node}</div>
+        ))}
+      </>
+    );
+    // Render once per microtask (cheap batching)
+    Promise.resolve().then(() => {
+      if (!this.host) return;
+      const vnode = createPortal(content, this.host!);
+      // store on window for devtools (optional)
+      (window as any).__LAYER_VNODE__ = vnode;
+    });
+  }
 }
-
-let uid = 1;
-
-export const LayerManager: React.FC<{ children?: ReactNode }> = ({ children }) => {
-  const [layers, setLayers] = useState<LayerItem[]>([]);
-  const api = useMemo<Ctx>(() => ({
-    mount(node) {
-      const id = uid++;
-      setLayers(ls => [...ls, { id, node }]);
-      return id;
-    },
-    update(id, node) { setLayers(ls => ls.map(l => l.id === id ? ({ id, node }) : l)); },
-    unmount(id) { setLayers(ls => ls.filter(l => l.id !== id)); },
-  }), []);
-  return (
-    <LayerCtx.Provider value={api}>
-      {children}
-      {createPortal(
-        <div id="__layers__">
-          {layers.map(l => <React.Fragment key={l.id}>{l.node}</React.Fragment>)}
-        </div>,
-        document.body
-      )}
-    </LayerCtx.Provider>
-  );
-};
+const LayerManager = new LayerManagerImpl();
+export default LayerManager;

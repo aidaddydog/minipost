@@ -1,0 +1,4 @@
+# modules/logistics_custom/config/module.meta.yaml
+module: logistics_custom
+title: 自定义物流
+version: 0.1.0

@@ -1,0 +1,6 @@
+# modules/logistics_custom/config/menu.register.yaml
+# 新框架的 L2 申报：按 href 前缀自动聚合到 /logistics
+l2:
+  - text: 自定义物流
+    href: /logistics/custom
+    order: 460

@@ -1,4 +1,4 @@
-/* 导航与主题样式入口（保持顺序） */
-@import "../../../../_themes/default/root.css";
-@import "../../../../_themes/default/_63_vars_patch.css";
-@import "./_nav_effects.css";
+/* Frontend styles entry */
+@import url("../../../../_themes/default/root.css");
+@import url("../../../../_themes/default/_63_vars_patch.css");
+@import url("./_nav_effects.css");
