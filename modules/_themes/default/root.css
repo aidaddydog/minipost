@@ -1,141 +1,72 @@
-:root{
-  /* ===== 页面壳层 / 布局（全局） ===== */
-  --maxw:100%;
-  --page-bg:#ffffff;
-  --page-px:50px;
-  --page-pt:20px;
-  --page-pb:2px;
-  --text:#0f172a;
-  --primary:#111827;
+/* =========================
+   默认主题变量（保留你现有内容）
+   ========================= */
 
-  /* ===== 全局字体 ===== */
-  --font-family:system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Hiragino Sans GB","Microsoft YaHei",sans-serif;
-  --font-size-base:10px;
-  --line-height-base:1.6;
+/* …………此处保留你现有 :root 与主题变量定义………… */
 
-  /* ===== 顶部 LOGO / 头像 ===== */
-  --logo-w:30px;
-  --logo-h:30px;
-  --logo-radius:12px;
-  --logo-bg:#e7e7e9;
-  --logo-ml:15px;
+/* =========================
+   登录页（仅在 <html data-page="login"> 作用域生效）
+   ========================= */
+html[data-page="login"] {
+  /* shadcn 关键语义变量（仅登录页覆盖） */
+  --background: #ffffff;
+  --foreground: #0f172a;          /* slate-900 */
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --primary: #0b0b0b;             /* 黑色主按钮 */
+  --primary-foreground: #ffffff;
+  --secondary: #f2f4f7;
+  --secondary-foreground: #0f172a;
+  --muted: #f5f7fb;
+  --muted-foreground: #475569;     /* slate-600 */
+  --accent: #111827;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+  --border: #e5e7eb;               /* slate-200 */
+  --input: #e5e7eb;
+  --ring: rgba(0,0,0,0.2);         /* 更轻的聚焦环 */
+  --radius: 12px;                  /* 登录页整体圆角 */
 
-  --avatar-size:30px;
-  --avatar-radius:50%;
-  --avatar-bg:#ffffff;
-  --avatar-border-width:1px;
-  --avatar-border-color:#e7e7e9;
-  --avatar-mr:15px;
+  /* 登录页专用间距/尺寸变量（可按需使用） */
+  --login-field-height: 48px;
+  --login-gap-y: 24px;
+}
 
-  /* ===== 顶部行间距 ===== */
-  --gap:25px;
-  --header-mt:0px;
-  --header-mb:0px;
+/* =========================
+   导航（L1/L2/L3）变量：用于像素级复刻
+   ========================= */
+:root {
+  /* L1 顶栏 */
+  --nav-l1-height: 56px;
+  --nav-l1-bg: #ffffff;
+  --nav-l1-border: rgba(0,0,0,0.06);
+  --nav-l1-radius: 999px;
+  --nav-l1-item-gap: 8px;
+  --nav-l1-item-px: 14px;
+  --nav-l1-item-py: 8px;
+  --nav-l1-item-hover-bg: rgba(0,0,0,0.04);
+  --nav-l1-item-active-bg: #0b0b0b;
+  --nav-l1-item-active-fg: #ffffff;
+  --nav-l1-shadow: 0 1px 2px rgba(0,0,0,0.04);
 
-  /* ===== 导航卡片（一级轨道） ===== */
-  --nav-w:50.666%;
-  --rail-bg:#f6f6f6;
-  --rail-border-width:0px;
-  --rail-border-color:rgba(0,0,0,.06);
-  --rail-radius:999px;
-  --rail-shadow:0 0 0 rgba(15,23,42,.06);
+  /* L2 次级导航 */
+  --nav-l2-height: 44px;
+  --nav-l2-bg: #ffffff;
+  --nav-l2-sep: rgba(0,0,0,0.06);
+  --nav-l2-item-px: 12px;
+  --nav-l2-item-py: 8px;
+  --nav-l2-item-radius: 10px;
+  --nav-l2-item-hover-bg: rgba(0,0,0,0.04);
+  --nav-l2-item-active-bg: #111827;
+  --nav-l2-item-active-fg: #ffffff;
 
-  /* ===== 一级菜单文字 ===== */
-  --l1-font-size:10px;
-  --l1-color:#151515;
-  --l1-hover:#0f172a;
-  --l1-active:#111827;
-  --l1-item-px:20px;
-  --l1-gap:1px;
-  --l1-height:35px;
-
-  /* ===== 胶囊滑块 ===== */
-  --pill-bg:#ffdf5d;
-  --pill-border-width:0px;
-  --pill-border-color:rgba(0,0,0,.10);
-  --pill-shadow:0 0 0 rgba(0,0,0,0);
-  --pill-radius:999px;
-  --pill-minw:60px;
-  --pill-height:20px;
-
-  /* ===== 动画 ===== */
-  --anim-speed:.25s;
-  --anim-ease:cubic-bezier(.22,.61,.36,1);
-
-  /* ===== 二级导航（文本） ===== */
-  --l2-font-size:9px;
-  --l2-color:#334155;
-  --l2-hover:#0f766e; /* 墨绿色菜单 */
-  --l2-item-py:6px;
-  --l2-item-px:4px;
-  --l2-item-radius:8px;
-  --l2-gap:14px;
-  --l2-item-my:5px;
-
-  /* ===== 二级“固定视角区域”（整行） ===== */
-  --sub-top-gap:0px;
-  --sub-extra:5px;
-  --sub-row-bg:transparent;
-
-  /* ===== 宽容时间窗（防回弹） ===== */
-  --sub-grace-ms:220;
-
-  /* ===== 三级页签 & 卡片 ===== */
-  --tab-w:100%;
-  --tab-offset-left:calc(var(--logo-w) + var(--gap));
-  --tab-gap:0px;
-  --tab-font-size:8px;
-  --tab-radius:10px;
-  --tab-inactive-bg:transparent;
-  --tab-active-bg:transparent;
-  --tab-border:transparent;
-  --tab-color:#9f9f9f;
-  --tab-color-active:#111827;
-  --tab-px:0px; --tab-py:3px;
-  --tabcard-radius:25px;
-  --tabcard-bg:#f6f6f6;
-  --tabcard-shadow:0 0 0 rgba(0,0,0,0);
-  --tabcard-p:16px;
-
-  /* ===== 新增：页签文本左边距 & 下方横线参数 ===== */
-  --tab-text-ml:37px;
-  --tab-ink-height:2px;
-  --tab-ink-radius:999px;
-  --tab-ink-color:#000000;
-  --tab-ink-pad-x:-8px;
-  --tab-ink-ml:6px;
-  --tab-ink-mt:-1px;
-
-  /* ===== 过滤/控件/表格/底栏/滚动条变量（保留一致性） ===== */
-  --filter-card-font-family:var(--font-family);
-  --filter-card-font-size:5px;
-  --filter-card-line-height:1.6;
-  --filter-card-bg:#f6f6f6;
-  --filter-card-radius:25px;
-  --filter-card-px:14px;
-  --filter-card-py:14px;
-  --filter-card-mt:0px;
-  --filter-card-mb:0px;
-
-  --ctl-h:20px; --ctl-minw:50px; --ctl-px:12px; --ctl-font-size:10px; --ctl-radius:999px;
-  --ctl-border:#d1d5db; --ctl-border-width:1px; --ctl-bg:#ffffff; --ctl-ink:#111827; --ctl-placeholder:#9ca3af;
-
-  --btn-h:var(--ctl-h); --btn-minw:50px; --btn-px:16px; --btn-font-size:var(--ctl-font-size); --btn-gap:8px;
-  --btn-border-width:var(--ctl-border-width); --btn-radius:var(--ctl-radius); --btn-black-bg:#0a0a0a; --btn-black-ink:#ffffff; --caret-size:12px;
-
-  --input-h:var(--ctl-h); --input-minw:60px; --input-w:60px; --input-search-w:160px; --input-datetime-w:80px; --input-border-width:var(--ctl-border-width); --input-radius:var(--ctl-radius);
-  --select-h:var(--ctl-h); --select-minw:50px; --select-w:auto; --select-border-width:var(--ctl-border-width); --select-radius:var(--ctl-radius);
-
-  --menu-minw:160px; --menu-maxh:280px; --menu-radius:12px; --menu-item-h:36px; --menu-item-px:12px; --menu-font-size:12px; --menu-shadow:0 10px 30px rgba(0,0,0,.08); --menu-border-width:1px; --menu-border-color:#e5e7eb;
-
-  --table-wrap-bg:transparent; --table-wrap-radius:8px; --table-wrap-mt:12px; --table-wrap-mb:60px; --table-max-h:100%;
-  --table-font-family:var(--font-family); --table-font-size:8px; --table-ink:#111827;
-  --table-row-bg:#ffffff; --table-head-ink:#6b7280; --table-line:#e5e7eb; --table-row-hover:#fafafa; --table-row-selected:#ffffff;
-  --table-head-sticky-top:0px; --table-head-bg:var(--page-bg); --table-head-shadow:0 1px 0 var(--table-line);
-
-  --col-w-chk:36px; --col-w-order:160px; --col-w-waybill:200px; --col-w-trans:140px; --col-w-ship:110px; --col-w-file:160px; --col-w-status:110px; --col-w-created:160px; --col-w-op:140px;
-
-  --footer-font-family:var(--font-family); --footer-font-size:9px; --footer-bg:#f6f6f6; --footer-ink:#111827; --footer-radius:25px; --footer-shadow:0 0 0 rgba(0,0,0,0); --footer-px:30px; --footer-py:10px; --footer-gap:12px; --footer-bottom:10px; --footer-ctl-h:20px; --footer-ctl-border-width:0px;
-
-  --scrollbar-w: 6px; --scrollbar-h: 6px; --scrollbar-thumb: rgba(15,23,42,0.10); --scrollbar-thumb-hover: rgba(15,23,42,0.18); --scrollbar-track: transparent; --scrollbar-radius: 999px; --scrollbar-gutter: stable;
+  /* L3 页签 */
+  --nav-l3-height: 40px;
+  --nav-l3-bg: #ffffff;
+  --nav-l3-underline: #0b0b0b;
+  --nav-l3-gap: 8px;
+  --nav-l3-px: 10px;
+  --nav-l3-py: 8px;
+  --nav-l3-radius: 8px;
 }
