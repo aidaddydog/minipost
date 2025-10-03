@@ -1,7 +1,0 @@
-# modules/system_settings/config/menu.register.yaml
-设置:
-  - text: 系统设置
-    href: /settings/system_settings
-    order: 100
-    icon: ""
-    default: true
