@@ -1,9 +1,9 @@
 @tailwind base;
+/* 主题变量与基础层（内部包含 @layer base） */
+@import "../../../../_themes/default/root.css";
 @tailwind components;
 @tailwind utilities;
 
-/* 引入主题变量与基础层（其中含 @layer base） */
-@import "../../../../_themes/default/root.css";
-
 /* 全局轻微补丁（可选） */
 :root { color-scheme: light; }
+
