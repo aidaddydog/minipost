@@ -1,44 +1,58 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useMemo } from "react";
+import type { L1Item, TopNavHandle } from "./TopNav";
 
-type Item = { href: string; title?: string; text?: string };
+export type L2Item = { text: string; href: string; ownerPath: string };
 
-export default function SubNav({
-  items, activePath, visualPath, onHoverL2, onLeaveL2, onPickL2
-}: {
-  items: Item[];
-  activePath: string;
-  visualPath: string;
-  onHoverL2: (href: string | null) => void;
-  onLeaveL2: () => void;
-  onPickL2: (href: string) => void;
-}) {
+type Props = {
+  owner: L1Item | null;
+  items: L2Item[];
+  lockedSubHref: string;
+  onLockSub: (href: string) => void;
+  onPointerZone: (inZone: boolean) => void;
+  topNavRef: React.RefObject<TopNavHandle>;
+};
+
+function cssVarNum(name: string, fallback = 0) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!v) return fallback;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const SubNav: React.FC<Props> = ({ owner, items, lockedSubHref, onLockSub, onPointerZone, topNavRef }) => {
+  const grace = useMemo(() => cssVarNum("--sub-grace-ms", 220), []);
+
+  let leaveTimer: number | undefined;
+  function handleEnter() {
+    window.clearTimeout(leaveTimer);
+    onPointerZone(true);
+  }
+  function handleLeave() {
+    window.clearTimeout(leaveTimer);
+    leaveTimer = window.setTimeout(() => onPointerZone(false), grace);
+  }
+
   return (
-    <div className="w-full border-b bg-[var(--nav-l2-bg)]" style={{ borderColor: "var(--nav-l2-sep)" }}
-         onMouseLeave={onLeaveL2}>
-      <div className="mx-auto w-full max-w-[1200px] h-[var(--nav-l2-height)] flex items-center px-4 gap-2">
-        {items.map((it) => {
-          const label = it.title || it.text || it.href;
-          const active = visualPath === it.href || visualPath.startsWith((it.href || "") + "/");
-          return (
-            <Link
-              key={it.href}
-              to={it.href}
-              className="text-[13px]"
-              style={{
-                padding: `var(--nav-l2-item-py) var(--nav-l2-item-px)`,
-                borderRadius: "var(--nav-l2-item-radius)",
-                background: active ? "var(--nav-l2-item-active-bg)" : "transparent",
-                color: active ? "var(--nav-l2-item-active-fg)" : "inherit",
-              }}
-              onMouseEnter={() => onHoverL2(it.href)}
-              onClick={(e) => { e.preventDefault(); onPickL2(it.href); }}
-            >
-              {label}
-            </Link>
-          );
-        })}
+    <div className="subrow" onPointerEnter={handleEnter} onPointerLeave={handleLeave} aria-label="次级导航整行">
+      <div className="subrow-inner">
+        <div className="subbar-offset" aria-hidden="true"></div>
+        <div className="subbar">
+          <div className="sub-inner">
+            {items.map(s => (
+              <a
+                key={s.href}
+                className={"sub" + (lockedSubHref === s.href ? " active" : "")}
+                data-owner={s.ownerPath}
+                href={s.href}
+                onPointerOver={() => topNavRef.current?.movePillToPath(s.ownerPath)}
+                onClick={(e) => { e.preventDefault(); onLockSub(s.href); }}
+              >{s.text}</a>
+            ))}
+          </div>
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default SubNav;

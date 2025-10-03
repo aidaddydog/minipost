@@ -1,113 +1,110 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useImperativeHandle, useMemo, useRef } from "react";
 
-type Item = { href: string; title?: string; text?: string };
-type L2Map = Record<string, Array<{ href: string; title?: string; text?: string }>>;
-type TabsDict = Record<string, Array<{ href: string; title?: string; text?: string }>>;
+export type L1Item = { text: string; path: string; href: string };
+export type TopNavHandle = {
+  movePillToPath: (path: string) => void;
+  realign: () => void;
+};
 
-function firstRenderableTab(l1Href: string, l2ByL1: L2Map, tabsDict: TabsDict): string {
-  const l2 = l2ByL1[l1Href] || [];
-  if (l2.length) {
-    const base = l2[0].href || l1Href;
-    const t = tabsDict[base] || [];
-    if (t.length) return t[0].href || base;
-    return base;
-  }
-  const t = tabsDict[l1Href] || [];
-  if (t.length) return t[0].href || l1Href;
-  return l1Href;
+type Props = {
+  items: L1Item[];
+  lockedPath: string;
+  hoverPath: string;
+  inSubRow: boolean;
+  onHoverPath: (path: string) => void;
+  onLockPath: (path: string) => void;
+};
+
+function cssVarNum(name: string, fallback = 0) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!v) return fallback;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
 }
 
-export default function TopNav({
-  items, activePath, visualPath, l2ByL1, tabsDict,
-  onHoverL1, onLeaveHeader, onPickL1,
-}: {
-  items: Item[];
-  activePath: string;
-  visualPath: string;
-  l2ByL1: L2Map;
-  tabsDict: TabsDict;
-  onHoverL1: (href: string | null) => void;
-  onLeaveHeader: () => void;
-  onPickL1: (href: string) => void;
-}) {
-  const railRef = React.useRef<HTMLDivElement | null>(null);
-  const pillRef = React.useRef<HTMLSpanElement | null>(null);
-  const [pill, setPill] = React.useState<{left: number; width: number} | null>(null);
+const TopNav = React.forwardRef<TopNavHandle, Props>(function TopNav(
+  { items, lockedPath, hoverPath, inSubRow, onHoverPath, onLockPath }, ref
+) {
+  const trackRef = useRef<HTMLDivElement | null>(null);
+  const pillRef = useRef<HTMLDivElement | null>(null);
+  const linkRefs = useRef<Record<string, HTMLAnchorElement | null>>({});
+  const graceMs = useMemo(() => cssVarNum("--sub-grace-ms", 220), []);
 
-  const visualL1 = React.useMemo(() => {
-    const list = items
-      .filter((it) => visualPath === it.href || visualPath.startsWith((it.href || "/") + "/"))
-      .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0));
-    return list[0] || items[0];
-  }, [items, visualPath]);
+  function movePillToEl(el: HTMLElement | null) {
+    const track = trackRef.current;
+    const pill = pillRef.current;
+    if (!track || !pill || !el) return;
+    const left = el.offsetLeft - track.scrollLeft;
+    const minw = cssVarNum("--pill-minw", 60);
+    const width = Math.max(minw, el.offsetWidth);
+    pill.style.width = `${width}px`;
+    pill.style.transform = `translate(${left}px,-50%)`;
+    pill.style.opacity = "1";
+  }
 
-  const recalc = React.useCallback(() => {
-    const rail = railRef.current;
-    if (!rail) return;
-    const link = rail.querySelector<HTMLAnchorElement>(`a[data-href="${visualL1?.href}"]`);
-    if (!link) return;
-    const railRect = rail.getBoundingClientRect();
-    const linkRect = link.getBoundingClientRect();
-    const padLeft = parseFloat(getComputedStyle(rail).paddingLeft || "0") || 0;
-    const left = linkRect.left - railRect.left + rail.scrollLeft - padLeft;
-    const minW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pill-minw") || "56") || 56;
-    const width = Math.max(linkRect.width, minW);
-    setPill({ left, width });
-  }, [visualL1]);
+  function movePillToPath(path: string) {
+    const el = linkRefs.current[path];
+    if (el) movePillToEl(el);
+  }
 
-  React.useEffect(() => { recalc(); }, [recalc, items.length]);
+  useImperativeHandle(ref, () => ({
+    movePillToPath,
+    realign() { movePillToPath(hoverPath || lockedPath); }
+  }), [hoverPath, lockedPath]);
 
-  React.useEffect(() => {
-    const rail = railRef.current;
-    if (!rail) return;
-    const onScroll = () => recalc();
-    const onResize = () => recalc();
-    rail.addEventListener("scroll", onScroll, { passive: true });
-    window.addEventListener("resize", onResize, { passive: true });
-    return () => {
-      rail.removeEventListener("scroll", onScroll);
-      window.removeEventListener("resize", onResize);
-    };
-  }, [recalc]);
+  // 初始 & 窗口变化时复位
+  useEffect(() => {
+    const onResize = () => movePillToPath(hoverPath || lockedPath);
+    window.addEventListener("resize", onResize);
+    const t = setTimeout(onResize, 0);
+    return () => { window.removeEventListener("resize", onResize); clearTimeout(t); };
+  }, [hoverPath, lockedPath]);
+
+  // track 滚动时复位
+  useEffect(() => {
+    const track = trackRef.current;
+    if (!track) return;
+    const onScroll = () => movePillToPath(hoverPath || lockedPath);
+    track.addEventListener("scroll", onScroll, { passive: true });
+    return () => track.removeEventListener("scroll", onScroll);
+  }, [hoverPath, lockedPath]);
+
+  // hoverPath 变化 => pill 跟随
+  useEffect(() => { movePillToPath(hoverPath || lockedPath); }, [hoverPath, lockedPath]);
+
+  let leaveTimer: number | undefined;
+  function handleTrackLeave() {
+    window.clearTimeout(leaveTimer);
+    leaveTimer = window.setTimeout(() => {
+      if (!inSubRow) onHoverPath(lockedPath);
+    }, graceMs);
+  }
 
   return (
-    <header className="w-full border-b bg-[var(--nav-l1-bg)]" style={{ borderColor: "var(--nav-l1-border)" }}
-            onMouseLeave={onLeaveHeader}>
-      <div className="mx-auto w-full max-w-[1200px] h-[var(--nav-l1-height)] flex items-center px-4">
-        <nav ref={railRef} className="nav-rail relative w-full overflow-x-auto whitespace-nowrap pr-2">
-          <span ref={pillRef}
-                className="pill absolute top-1/2 -translate-y-1/2 pointer-events-none"
-                style={pill ? {
-                  width: `${pill.width}px`,
-                  transform: `translateX(${pill.left}px) translateY(-50%)`,
-                } : { display: "none" }} />
-          {items.map((it) => {
-            const label = it.title || it.text || it.href;
-            const href = it.href;
-            const active = visualPath === href || visualPath.startsWith((href || "/") + "/");
-            return (
-              <Link
-                key={href}
-                data-href={href}
-                to={firstRenderableTab(href, l2ByL1, tabsDict)}
-                className="inline-block text-[13px] select-none"
-                style={{
-                  padding: `var(--nav-l1-item-py) var(--nav-l1-item-px)`,
-                  borderRadius: "var(--nav-l1-radius)",
-                  background: active ? "var(--nav-l1-item-active-bg)" : "transparent",
-                  color: active ? "var(--nav-l1-item-active-fg)" : "inherit",
-                }}
-                onMouseEnter={() => onHoverL1(href)}
-                onClick={(e) => { e.preventDefault(); onPickL1(href); }}
-                onFocus={() => onHoverL1(href)}
-              >
-                {label}
-              </Link>
-            );
-          })}
-        </nav>
+    <div className="nav-rail" role="navigation" aria-label="主导航（一级）">
+      <div
+        className="track"
+        ref={trackRef}
+        onPointerLeave={handleTrackLeave}
+      >
+        <div className="pill" ref={pillRef} aria-hidden="true" />
+        {items.map(it => (
+          <a
+            key={it.path}
+            ref={el => (linkRefs.current[it.path] = el)}
+            className={"link" + (lockedPath === it.path ? " active" : "")}
+            data-path={it.path}
+            href={it.href}
+            onPointerEnter={() => { if (!inSubRow) onHoverPath(it.path); }}
+            onClick={(e) => {
+              e.preventDefault();
+              onLockPath(it.path);
+            }}
+          >{it.text}</a>
+        ))}
       </div>
-    </header>
+    </div>
   );
-}
+});
+
+export default TopNav;

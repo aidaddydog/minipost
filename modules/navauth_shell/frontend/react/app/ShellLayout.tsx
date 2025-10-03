@@ -1,208 +1,176 @@
-import React from "react";
-import { Outlet, useLocation, useNavigate } from "react-router-dom";
-import TopNav from "./components/TopNav";
-import SubNav from "./components/SubNav";
-import PageTabs from "./components/PageTabs";
+import React, { useEffect, useMemo, useRef, useState } from "react";
+import TopNav, { TopNavHandle, L1Item } from "./components/TopNav";
+import SubNav, { L2Item } from "./components/SubNav";
+import PageTabs, { TabItem } from "./components/PageTabs";
+import { LayerManager } from "./LayerManager";
 
-type AnyObj = Record<string, any>;
+type MenuMap = Record<string, { text: string; href: string }[]>;
+type TabsMap = Record<string, { text: string; href: string; key?: string; template?: string }[]>;
 
-async function ensureNav(): Promise<AnyObj> {
-  const cached = (window as any).__navjson;
-  if (cached) return cached;
-  const res = await fetch("/api/nav", { headers: { Accept: "application/json" }, credentials: "include" });
-  if (!res.ok) throw new Error(await res.text());
-  const json = await res.json();
-  (window as any).__navjson = json;
-  return json;
+export type NavPayload = { menu: MenuMap; tabs: TabsMap };
+type Model = {
+  l1: L1Item[];
+  l2ByL1: Record<string, L2Item[]>;   // ownerPath -> L2[]
+  tabsDict: Record<string, TabItem[]>; // subHref -> tabs[]
+};
+
+const SCHEMA_VERSION = 11;
+const STORAGE_KEY = "NAV_STATE_V11";
+
+function ownerPathOf(href: string): string {
+  try {
+    const u = new URL(href, window.location.origin);
+    const parts = u.pathname.split("/").filter(Boolean);
+    return parts.length ? ("/" + parts[0]) : "/";
+  } catch { return "/"; }
 }
 
-/** 从 /api/nav（新 Schema）派生 L1/L2/L3 结构 */
-function deriveNavModel(nav: AnyObj) {
-  const l1: Array<any> = [];
-  const l2ByL1: Record<string, any[]> = {};
-  const tabsDict: Record<string, any[]> = {};
+function deriveModel(menu: MenuMap, tabs: TabsMap): Model {
+  const l1: L1Item[] = [];
+  const l2ByL1: Record<string, L2Item[]> = {};
+  const seenOwner = new Set<string>();
 
-  // tabs → tabsDict
-  const fromTabs = (nav && typeof nav === "object" ? (nav as any).tabs : null) || {};
-  if (fromTabs && typeof fromTabs === "object") {
-    Object.keys(fromTabs).forEach((base) => {
-      const arr = (fromTabs as any)[base];
-      if (Array.isArray(arr)) {
-        tabsDict[base] = arr.map((t: any) => ({
-          ...t,
-          href: t.href || t.path || "/",
-          title: t.title || t.text,
-          text: t.text || t.title,
-        }));
-      }
-    });
+  for (const [l1Text, l2List] of Object.entries(menu || {})) {
+    if (!Array.isArray(l2List) || !l2List.length) continue;
+    const firstHref = l2List[0].href || "/";
+    const owner = ownerPathOf(firstHref);
+    if (!seenOwner.has(owner)) {
+      seenOwner.add(owner);
+      l1.push({ text: l1Text, path: owner, href: owner });
+    }
+    l2ByL1[owner] = (l2List || []).map(i => ({ text: i.text, href: i.href, ownerPath: owner }));
   }
-
-  // menu（对象）→ l1 / l2ByL1
-  const menuObj = (nav && typeof nav === "object" ? (nav as any).menu : null) || null;
-  const l1PathFromL2List = (l2List: any[]): string => {
-    const firstHref = ((l2List?.[0]?.href || l2List?.[0]?.path || "") as string).trim();
-    const segs = firstHref.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
-    return segs.length ? "/" + segs[0] : "/";
-  };
-  if (menuObj && typeof menuObj === "object" && !Array.isArray(menuObj)) {
-    Object.keys(menuObj).forEach((l1Title) => {
-      const l2List = (menuObj as any)[l1Title] || [];
-      const baseHref = l1PathFromL2List(l2List);
-      l1.push({ href: baseHref, title: l1Title, text: l1Title });
-      l2ByL1[baseHref] = Array.isArray(l2List)
-        ? l2List.map((c: any) => ({
-            ...c,
-            href: c.href || c.path || "/",
-            title: c.title || c.text,
-            text: c.text || c.title,
-          }))
-        : [];
-    });
+  const tabsDict: Record<string, TabItem[]> = {};
+  for (const [k, arr] of Object.entries(tabs || {})) {
+    tabsDict[k] = (arr || []).map(t => ({ key: t.key, text: t.text, href: t.href }));
   }
-
   return { l1, l2ByL1, tabsDict };
 }
 
-export function ShellHeaderSkeleton() {
-  return <div className="border-b" style={{ height: "var(--nav-l1-height)" }} />;
+function useNumericVar(name: string, fallback = 0) {
+  const [val, setVal] = useState(fallback);
+  useEffect(() => {
+    const get = () => {
+      const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+      const num = parseFloat(v); setVal(Number.isFinite(num) ? num : fallback);
+    };
+    get(); window.addEventListener("resize", get);
+    return () => window.removeEventListener("resize", get);
+  }, [name, fallback]);
+  return val;
 }
 
-function resolveActiveL1(pathname: string, l1: Array<{href: string}>) {
-  const cand = l1
-    .filter((it) => pathname === it.href || pathname.startsWith((it.href || "/") + "/"))
-    .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0));
-  return cand[0] || l1[0] || null;
-}
+export default function ShellLayout({ nav }: { nav?: NavPayload }) {
+  // 如果外层未传 nav，则自行拉取（避免依赖其它框架文件）
+  const [innerNav, setInnerNav] = useState<NavPayload | null>(nav || null);
+  useEffect(() => { if (!nav && !innerNav) { fetch("/api/nav").then(r => r.json()).then(setInnerNav).catch(()=>{}); }}, [nav, innerNav]);
+  const data = nav || innerNav;
+  const model = useMemo(() => data ? deriveModel(data.menu || {}, data.tabs || {}) : null, [data]);
 
-function firstRenderableFromL1(l1Href: string, l2ByL1: Record<string, any[]>, tabsDict: Record<string, any[]>) {
-  const l2 = l2ByL1[l1Href] || [];
-  if (l2.length) {
-    const base = l2[0].href || l1Href;
-    const t = tabsDict[base] || [];
-    if (t.length) return t[0].href || base;
-    return base;
-  }
-  const t = tabsDict[l1Href] || [];
-  if (t.length) return t[0].href || l1Href;
-  return l1Href;
-}
+  // 状态持久化
+  const [lockedPath, setLockedPath] = useState<string>("/");
+  const [lockedSubHref, setLockedSubHref] = useState<string>("");
+  const [lockedTabHref, setLockedTabHref] = useState<string>("");
+  const [hoverPath, setHoverPath] = useState<string>(lockedPath);
+  const [inSubRow, setInSubRow] = useState<boolean>(false);
 
-function firstRenderableFromL2(l2Href: string, tabsDict: Record<string, any[]>) {
-  const t = tabsDict[l2Href] || [];
-  if (t.length) return t[0].href || l2Href;
-  return l2Href;
-}
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (raw) {
+        const obj = JSON.parse(raw);
+        if (obj && obj.v === SCHEMA_VERSION) {
+          setLockedPath(obj.lockedPath || "/");
+          setLockedSubHref(obj.lockedSubHref || "");
+          setLockedTabHref(obj.lockedTabHref || "");
+          setHoverPath(obj.lockedPath || "/");
+        }
+      } else if (model && model.l1.length) {
+        const first = model.l1[0];
+        setLockedPath(first.path);
+        const sub = (model.l2ByL1[first.path] || [])[0];
+        setLockedSubHref(sub ? sub.href : "");
+      }
+    } catch {}
+  }, [model?.l1.length]);
 
-export default function ShellLayout() {
-  const { pathname } = useLocation();
-  const navigate = useNavigate();
-  const [model, setModel] = React.useState<ReturnType<typeof deriveNavModel> | null>(null);
+  useEffect(() => {
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify({ v: SCHEMA_VERSION, lockedPath, lockedSubHref, lockedTabHref, ts: Date.now() }));
+    } catch {}
+  }, [lockedPath, lockedSubHref, lockedTabHref]);
 
-  const [lockedPath, setLockedPath] = React.useState<string | null>(null);
-  const [hoverPath, setHoverPath] = React.useState<string | null>(null);
-  const visualPath = hoverPath || lockedPath || pathname;
+  // 计算当前子菜单 & 页签
+  const l2List = useMemo<L2Item[]>(() => (model ? (model.l2ByL1[hoverPath || lockedPath] || []) : []), [model, hoverPath, lockedPath]);
+  const tabs = useMemo<TabItem[]>(() => (model ? (model.tabsDict[lockedSubHref] || []) : []), [model, lockedSubHref]);
 
-  if (pathname === "/login") {
-    return <Outlet />;
-  }
+  // Pill 联动（让二级 hover 时可推动一级胶囊）
+  const topRef = useRef<TopNavHandle | null>(null);
 
-  React.useEffect(() => {
-    (async () => {
-      const navjson = await ensureNav();
-      const m = deriveNavModel(navjson);
-      setModel(m);
-      const l1Active = resolveActiveL1(pathname, m.l1);
-      const first = l1Active ? firstRenderableFromL1(l1Active.href, m.l2ByL1, m.tabsDict) : pathname;
-      setLockedPath(first);
-    })();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  React.useEffect(() => {
-    if (!model) return;
-    if (hoverPath) return;
-    const l1Active = resolveActiveL1(pathname, model.l1);
-    const first = l1Active ? firstRenderableFromL1(l1Active.href, model.l2ByL1, model.tabsDict) : pathname;
-    setLockedPath(first);
-  }, [pathname, hoverPath, model]);
-
-  const clearHover = React.useCallback((delay = 80) => {
-    if (delay <= 0) setHoverPath(null);
-    else setTimeout(() => setHoverPath(null), delay);
-  }, []);
-
-  if (!model) {
-    return (
-      <>
-        <ShellHeaderSkeleton />
-        <Outlet />
-      </>
-    );
+  // 点击 L1 => 锁定并跳首个 L2
+  function lockPath(p: string) {
+    setLockedPath(p);
+    setHoverPath(p);
+    const first = (model?.l2ByL1[p] || [])[0];
+    setLockedSubHref(first ? first.href : "");
+    const tabs0 = first ? (model?.tabsDict[first.href] || []) : [];
+    setLockedTabHref(tabs0.length ? (tabs0[0].href) : "");
   }
 
-  const l1Active = resolveActiveL1(visualPath, model.l1) || model.l1[0];
-  const l2 = model.l2ByL1[l1Active?.href || ""] || [];
-  const tabs =
-    model.tabsDict[visualPath] ||
-    model.tabsDict[(l2.find((x: any) => visualPath.startsWith((x.href || "") + "/"))?.href) || ""] ||
-    model.tabsDict[l1Active?.href || ""] ||
-    [];
+  function lockSub(href: string) {
+    setLockedSubHref(href);
+    const t = model?.tabsDict[href] || [];
+    setLockedTabHref(t.length ? t[0].href : "");
+  }
 
-  const onPickL1 = (href: string) => {
-    const dest = firstRenderableFromL1(href, model.l2ByL1, model.tabsDict);
-    setLockedPath(dest);
-    clearHover(0);
-    if (dest !== pathname) navigate(dest);
-  };
-  const onPickL2 = (href: string) => {
-    const dest = firstRenderableFromL2(href, model.tabsDict);
-    setLockedPath(dest);
-    clearHover(0);
-    if (dest !== pathname) navigate(dest);
-  };
-  const onPickTab = (href: string) => {
-    setLockedPath(href);
-    clearHover(0);
-    if (href !== pathname) navigate(href);
-  };
+  function lockTab(href: string) { setLockedTabHref(href); }
+
+  const pagePadPx = useNumericVar("--page-px", 50);
+
+  if (!model) return <div className="shell">加载导航中…</div>;
 
   return (
-    <div>
-      <TopNav
-        items={model.l1}
-        activePath={pathname}
-        visualPath={visualPath}
-        l2ByL1={model.l2ByL1}
-        tabsDict={model.tabsDict}
-        onHoverL1={setHoverPath}
-        onLeaveHeader={() => clearHover(80)}
-        onPickL1={onPickL1}
+    <LayerManager>
+      <div className="shell">
+        {/* 顶部：Logo / 导航卡片 / 头像 */}
+        <div className="shell-header">
+          <a className="logo" href="/admin" aria-label="仪表盘"></a>
+          <div className="header-gap-left" aria-hidden="true" />
+          <TopNav
+            ref={topRef}
+            items={model.l1}
+            lockedPath={lockedPath}
+            hoverPath={hoverPath}
+            inSubRow={inSubRow}
+            onHoverPath={setHoverPath}
+            onLockPath={lockPath}
+          />
+          <div className="header-gap-right" aria-hidden="true" />
+          <div className="avatar" aria-label="头像"></div>
+        </div>
+      </div>
+
+      {/* 二级整行（固定视角区域） */}
+      <SubNav
+        owner={model.l1.find(i => i.path === (hoverPath || lockedPath)) || null}
+        items={l2List}
+        lockedSubHref={lockedSubHref}
+        topNavRef={topRef}
+        onLockSub={lockSub}
+        onPointerZone={setInSubRow}
       />
 
-      {l2.length > 0 && (
-        <SubNav
-          items={l2}
-          activePath={pathname}
-          visualPath={visualPath}
-          onHoverL2={setHoverPath}
-          onLeaveL2={() => clearHover(80)}
-          onPickL2={onPickL2}
-        />
-      )}
+      {/* 三级页签（Ink 线仅点击动画） */}
+      <PageTabs
+        tabs={tabs}
+        lockedTabHref={lockedTabHref}
+        onLockTab={lockTab}
+      />
 
-      {tabs.length > 0 && (
-        <PageTabs
-          tabs={tabs}
-          activePath={pathname}
-          visualPath={visualPath}
-          onPickTab={onPickTab}
-        />
-      )}
-
-      <div className="px-6 py-4">
-        <Outlet />
+      {/* 留给页面内容的外层容器（左右与设计稿一致） */}
+      <div style={{ maxWidth: "var(--maxw)", margin: "0 auto", padding: `0 ${pagePadPx}px` }}>
+        {/* 下方页面内容由各模块 React 页面渲染 */}
       </div>
-    </div>
+    </LayerManager>
   );
 }

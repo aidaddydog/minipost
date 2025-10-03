@@ -1,73 +1,103 @@
-import React from "react";
-import { Link } from "react-router-dom";
+import React, { useEffect, useMemo, useRef } from "react";
 
-type Tab = { href: string; title?: string; text?: string };
+export type TabItem = { key?: string; text: string; href: string };
 
-export default function PageTabs({
-  tabs, activePath, visualPath, onPickTab
-}: {
-  tabs: Tab[];
-  activePath: string;
-  visualPath: string;
-  onPickTab: (href: string) => void;
-}) {
-  const barRef = React.useRef<HTMLDivElement | null>(null);
-  const inkRef = React.useRef<HTMLSpanElement | null>(null);
+type Props = {
+  tabs: TabItem[];
+  lockedTabHref: string;
+  onLockTab: (href: string) => void;
+};
 
-  const updateInk = React.useCallback(() => {
-    const bar = barRef.current;
-    const ink = inkRef.current;
-    if (!bar || !ink) return;
-    const act = bar.querySelector<HTMLAnchorElement>('a[data-active="true"]');
-    if (!act) {
-      ink.style.opacity = '0';
-      return;
+function cssVarNum(name: string, fallback = 0) {
+  const v = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  if (!v) return fallback;
+  const n = parseFloat(v);
+  return Number.isFinite(n) ? n : fallback;
+}
+
+const PageTabs: React.FC<Props> = ({ tabs, lockedTabHref, onLockTab }) => {
+  const tabsRef = useRef<HTMLDivElement | null>(null);
+  const inkRef = useRef<HTMLSpanElement | null>(null);
+
+  const padX = useMemo(() => cssVarNum("--tab-ink-pad-x", 0), []);
+  const ml   = useMemo(() => cssVarNum("--tab-ink-ml", 0), []);
+
+  function ensureInk(): HTMLSpanElement | null {
+    let ink = inkRef.current;
+    if (!ink && tabsRef.current) {
+      ink = document.createElement("span");
+      ink.className = "tab-ink";
+      tabsRef.current.appendChild(ink);
+      inkRef.current = ink;
     }
-    const barRect = bar.getBoundingClientRect();
-    const aRect = act.getBoundingClientRect();
-    const pad = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-ink-pad-x')) || 8;
-    const ml = parseFloat(getComputedStyle(document.documentElement).getPropertyValue('--tab-ink-ml')) || 0;
-    const width = Math.max(0, aRect.width - pad * 2);
-    const left = aRect.left - barRect.left + bar.scrollLeft + pad + ml;
-    ink.style.width = `${width}px`;
-    ink.style.transform = `translateX(${left}px)`;
-    ink.style.opacity = '1';
-  }, []);
+    return ink || null;
+  }
 
-  React.useEffect(() => {
-    updateInk();
-    const onResize = () => updateInk();
-    window.addEventListener('resize', onResize, { passive: true });
-    return () => window.removeEventListener('resize', onResize);
-  }, [updateInk, tabs.length, visualPath, activePath]);
+  function positionInk(target: HTMLElement | null, animate: boolean) {
+    const ink = ensureInk();
+    const root = tabsRef.current;
+    if (!ink || !root || !target) return;
+    const txt = target.querySelector(".tab__text") as HTMLElement || target;
+    const rect = txt.getBoundingClientRect();
+    const base = root.getBoundingClientRect();
+    const left = Math.round(rect.left - base.left + ml);
+    const width = Math.max(2, Math.round(rect.width + padX * 2));
+    if (!animate) {
+      const prev = ink.style.transition;
+      ink.style.transition = "none";
+      ink.style.width = width + "px";
+      ink.style.transform = `translateX(${left}px)`;
+      void ink.offsetWidth;
+      ink.style.transition = prev || "";
+    } else {
+      ink.style.width = width + "px";
+      ink.style.transform = `translateX(${left}px)`;
+    }
+  }
+
+  useEffect(() => {
+    const root = tabsRef.current;
+    function realign() {
+      const a = root?.querySelector<HTMLAnchorElement>('a.tab.active');
+      positionInk(a || null, false);
+    }
+    window.addEventListener("resize", realign);
+    const t = setTimeout(realign, 0);
+    return () => { window.removeEventListener("resize", realign); clearTimeout(t); };
+  }, [tabs, lockedTabHref]);
 
   return (
-    <div className="w-full bg-[var(--nav-l3-bg)] border-b" style={{ borderColor: "var(--nav-l2-sep)" }}>
-      <div ref={barRef} className="tabs relative mx-auto w-full max-w-[1200px] h-[var(--nav-l3-height)] flex items-end px-4 gap-[var(--nav-l3-gap)] overflow-x-auto whitespace-nowrap">
-        {/* Ink */}
-        <span ref={inkRef} className="tab-ink absolute bottom-0" aria-hidden="true" />
-
-        {tabs.map((t) => {
-          const label = t.title || t.text || t.href;
-          const active = visualPath === t.href;
-          return (
-            <Link
-              key={t.href}
-              to={t.href}
-              data-active={active ? "true" : "false"}
-              className="text-[13px]"
-              style={{
-                padding: `var(--nav-l3-py) var(--nav-l3-px)`,
-                borderRadius: `var(--nav-l3-radius)`,
-              }}
-              onClick={(e) => { e.preventDefault(); onPickTab(t.href); }}
-              onFocus={() => setTimeout(() => updateInk(), 0)}
-            >
-              {label}
-            </Link>
-          );
-        })}
+    <div className="tabrow" aria-label="三级页签卡片行">
+      <div className="tabrow-inner">
+        <div className="tab-offset" aria-hidden="true"></div>
+        <div className="tab-wrap">
+          <div className="tabs" ref={tabsRef}>
+            {tabs.map(t => {
+              const active = t.href === lockedTabHref;
+              return (
+                <a
+                  key={t.href}
+                  className={"tab" + (active ? " active" : "")}
+                  data-key={t.key || ""}
+                  href={t.href}
+                  onClick={(e) => {
+                    e.preventDefault();
+                    onLockTab(t.href);
+                    // 点击时才动画
+                    const el = (e.currentTarget as HTMLAnchorElement);
+                    positionInk(el, true);
+                  }}
+                >
+                  <span className="tab__text">{t.text}</span>
+                </a>
+              );
+            })}
+          </div>
+          {/* tab 内容容器由上层页面承接，这里只负责页签外观/交互 */}
+        </div>
       </div>
     </div>
   );
-}
+};
+
+export default PageTabs;
