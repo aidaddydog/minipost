@@ -17,17 +17,15 @@ type TabLike = { href?: string; template?: string; title?: string };
 
 /** 拉取 /api/nav（带 Cookie）。401 时直接回登录页 */
 async function fetchNav(): Promise<AnyObj> {
-  // 允许使用缓存，避免重复请求
   const cached = (window as any).__navjson;
   if (cached) return cached;
 
   const res = await fetch("/api/nav", {
     headers: { Accept: "application/json" },
-    credentials: "include", // ← 关键：携带登录 Cookie
+    credentials: "include", // 关键：携带登录 Cookie
   });
 
   if (res.status === 401) {
-    // 未登录或会话失效
     window.location.assign("/login");
     throw new Error("Unauthorized");
   }
@@ -57,7 +55,7 @@ function flattenTabs(root: AnyObj): TabLike[] {
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
-// 旧模板 → 模块内 React 页面（与旧 YAML 完全兼容）
+// 旧模板 → 模块 React 页面
 //   modules/<domain>/<feature>/frontend/templates/<page>.html
 // → modules/<domain>/<feature>/frontend/react/pages/<page>.tsx
 function htmlTemplateToReactModulePath(template: string): string | null {
@@ -77,27 +75,33 @@ function pickModuleLoader(reactRelativePath: string): any | null {
   return null;
 }
 
-/** 计算“首页默认跳转路径”：
- *  优先：第一个 L1 的第一个 L2；备选：第一个 L1；最后：第一个可渲染 tab/href
- */
+/** 计算“首页默认跳转路径”：优先选择“第一个有模板的 tab（L3）” */
 function guessHomePath(nav: AnyObj): string {
-  const menus = (nav.menus || nav.menu || nav.items || []) as any[];
+  // 先找 tabs 里第一个条目（更可靠，因为我们为 tab 挂了真正的 React 页面）
+  const tabsDict = nav.tabs || {};
+  const sortedBases = Object.keys(tabsDict).sort();
+  for (const base of sortedBases) {
+    const arr = Array.isArray(tabsDict[base]) ? tabsDict[base] : [];
+    if (!arr.length) continue;
+    const firstWithTpl = arr.find((t: any) => !!t.template) || arr[0];
+    if (firstWithTpl?.href) return firstWithTpl.href;
+  }
+
+  // 兜底：从 menu 抽第一个 L1 的第一个 L2 的第一个 tab
+  const menus = (nav.menu || nav.menus || nav.items || []) as any[];
   if (Array.isArray(menus) && menus.length) {
     const l1 = menus.map((m: any) => ({ ...m, href: m.href || m.path || "/" }));
     const firstL1 = l1[0];
     const l2 = (firstL1?.children || firstL1?.items || []) as any[];
     if (Array.isArray(l2) && l2.length) {
-      const firstL2 = { ...l2[0], href: l2[0].href || l2[0].path || firstL1.href || "/" };
-      return firstL2.href;
+      const base = l2[0].href || l2[0].path || firstL1.href || "/";
+      const arr = tabsDict[base] || [];
+      if (Array.isArray(arr) && arr.length) return arr[0].href || base;
+      return base;
     }
     return firstL1.href || "/";
   }
-  // 再退回到 tabs 字典
-  const tabs = nav.tabs || {};
-  const keys = Object.keys(tabs || {});
-  if (keys.length && Array.isArray(tabs[keys[0]]) && tabs[keys[0]].length) {
-    return tabs[keys[0]][0].href || tabs[keys[0]][0].path || "/";
-  }
+
   return "/";
 }
 
@@ -123,7 +127,7 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
     }
   });
 
-  // 根路径的默认跳转（确保登录后不会空白）
+  // 根路径的默认跳转（→ 第一个可渲染的 L3）
   const home = guessHomePath(nav);
   children.push({ index: true, element: <Navigate to={home} replace /> });
 
@@ -146,7 +150,6 @@ function buildLoginOnlyRouter(): any {
   const Login = loader ? React.lazy(loader as any) : () => <div>Login</div>;
   const routes: RouteObject[] = [
     { path: "/login", element: <React.Suspense fallback={<div />}><Login /></React.Suspense> },
-    // 其他路径一律重定向到 /login（避免空白）
     { path: "*", element: <Navigate to="/login" replace /> },
   ];
   return createBrowserRouter(routes);
@@ -157,7 +160,6 @@ export function YamlRouter() {
 
   React.useEffect(() => {
     const path = window.location.pathname;
-    // 在 /login 用轻量路由，避免首屏加载 /api/nav 造成卡顿
     if (path === "/login") {
       setRouter(buildLoginOnlyRouter());
       return;
@@ -166,10 +168,9 @@ export function YamlRouter() {
       try {
         const nav = await fetchNav();
         const routes = buildRoutesFromNav(nav);
-        (window as any).__routes = routes; // 调试辅助
+        (window as any).__routes = routes;
         setRouter(createBrowserRouter(routes));
       } catch (e) {
-        // 如果拉取失败（例如 401 已跳转），这里保持空即可
         console.error("[YamlRouter] init failed:", e);
       }
     })();
