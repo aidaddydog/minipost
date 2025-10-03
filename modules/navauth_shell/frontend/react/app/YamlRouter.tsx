@@ -7,12 +7,38 @@ import {
 } from "react-router-dom";
 import ShellLayout from "./ShellLayout";
 
+/** 小提示：此路由器做三件事
+ * 1) 立刻挂“骨架路由”（含 /login + 外壳），让页面快速可交互
+ * 2) 异步拉 /api/nav，按模块 tabs 动态生成业务页面
+ * 3) 兜底把没注册的路由转去 NotFound
+ */
+
 function NotFound() {
   return <div className="p-6 text-sm text-slate-600">页面不存在或尚未迁移。</div>;
 }
 
 type AnyObj = Record<string, any>;
 type TabLike = { href?: string; template?: string; title?: string };
+
+/** ---------- 动态模块加载（由 Vite 负责打包） ---------- */
+const modulesMap: Record<string, () => Promise<{ default: React.ComponentType<any> }>> =
+  import.meta.glob("/modules/**/frontend/react/pages/**/*.tsx");
+
+/** 旧模板路径 → React 页面路径 */
+function htmlTemplateToReactModulePath(template: string): string | null {
+  const m = template.match(/^modules\/(.+?)\/frontend\/templates\/(.+?)\.html$/);
+  if (!m) return null;
+  return `modules/${m[1]}/frontend/react/pages/${m[2]}.tsx`;
+}
+
+/** 根据相对路径在 modulesMap 里拿到 loader */
+function pickModuleLoader(reactRelativePath: string):
+  (() => Promise<{ default: React.ComponentType<any> }>) | null {
+  for (const k in modulesMap) {
+    if (k.endsWith(reactRelativePath)) return modulesMap[k];
+  }
+  return null;
+}
 
 /** 拉取并缓存导航 JSON */
 async function fetchNav(): Promise<AnyObj> {
@@ -43,21 +69,6 @@ function flattenTabs(root: AnyObj): TabLike[] {
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
-// 旧模板路径 → React 页面路径
-function htmlTemplateToReactModulePath(template: string): string | null {
-  const m = template.match(/^modules\/(.+?)\/frontend\/templates\/(.+?)\.html$/);
-  if (!m) return null;
-  return `modules/${m[1]}/frontend/react/pages/${m[2]}.tsx`;
-}
-
-// 选择动态 import loader（由 Vite 处理）
-function pickModuleLoader(reactRelativePath: string): (() => Promise<{ default: React.ComponentType<any> }>) | null {
-  // 通过 vite 的 import.meta.glob 生成的模块表去匹配
-  const modulesMap = (import.meta as any).glob("/modules/**/frontend/react/pages/**/*.tsx");
-  for (const k in modulesMap) if (k.endsWith(reactRelativePath)) return (modulesMap as any)[k];
-  return null;
-}
-
 /** 首页默认跳转：优先第一个“有模板的 tab（L3）” */
 function guessHomePath(nav: AnyObj): string {
   const tabsDict = nav.tabs || {};
@@ -84,15 +95,32 @@ function guessHomePath(nav: AnyObj): string {
   return "/";
 }
 
-/** 根据 nav 构造 routes */
+/** ---------- 构造完整路由 ---------- */
 function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
-  const children: RouteObject[] = [];
+  const topLevel: RouteObject[] = [];
 
-  // 依据 nav.tabs（以及各 L2 的 tabs）推导页面
+  // 1) 登录页：始终独立于外壳
+  const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
+  const loginLoader = pickModuleLoader(loginRel);
+  if (loginLoader) {
+    const Login = React.lazy(loginLoader as any);
+    topLevel.push({
+      path: "/login",
+      element: (
+        <React.Suspense fallback={<div className="p-4 text-sm text-slate-600">加载登录页…</div>}>
+          <Login />
+        </React.Suspense>
+      ),
+    });
+  }
+
+  // 2) 外壳 + 业务模块（由 nav.tabs 推导）
+  const children: RouteObject[] = [];
   const tabs = flattenTabs(nav);
   tabs.forEach((tab) => {
     const href = tab.href || "/";
-    const rel = tab.template ? htmlTemplateToReactModulePath(tab.template) : null;
+    if (!tab.template) return; // 没模板暂不生成页面
+    const rel = htmlTemplateToReactModulePath(tab.template);
     if (!rel) return;
     const loader = pickModuleLoader(rel);
     if (loader) {
@@ -112,21 +140,38 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
   children.push({ index: true, element: <Navigate to={home} replace /> });
   children.push({ path: "*", element: <NotFound /> });
 
-  return [{ path: "/", element: <ShellLayout />, children }];
+  topLevel.push({ path: "/", element: <ShellLayout />, children });
+  return topLevel;
 }
 
-/** skeleton：立刻挂外壳与占位首页（导航可以先出现） */
+/** skeleton：立刻挂载“外壳 + 登录”占位，等 nav 到来再热替换 */
 function buildSkeletonRouter(): any {
-  return createBrowserRouter([
-    {
-      path: "/",
-      element: <ShellLayout />,
-      children: [
-        { index: true, element: <div className="p-4 text-sm text-slate-600">加载导航中…</div> },
-        { path: "*", element: <NotFound /> },
-      ],
-    },
-  ]);
+  const routes: RouteObject[] = [];
+
+  // 登录占位（避免跳 /login 时露白）
+  const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
+  const loginLoader = pickModuleLoader(loginRel);
+  if (loginLoader) {
+    const Login = React.lazy(loginLoader as any);
+    routes.push({
+      path: "/login",
+      element: (
+        <React.Suspense fallback={<div className="p-4 text-sm text-slate-600">加载登录页…</div>}>
+          <Login />
+        </React.Suspense>
+      ),
+    });
+  }
+
+  // 外壳 + 首页占位
+  routes.push({
+    path: "/",
+    element: <ShellLayout />,
+    children: [{ index: true, element: <div className="p-4 text-sm text-slate-600">加载导航中…</div> }],
+  });
+
+  routes.push({ path: "*", element: <NotFound /> });
+  return createBrowserRouter(routes);
 }
 
 export function YamlRouter() {
