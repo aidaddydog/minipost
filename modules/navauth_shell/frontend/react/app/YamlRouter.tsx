@@ -7,12 +7,6 @@ import {
 } from "react-router-dom";
 import ShellLayout from "./ShellLayout";
 
-/** 小提示：此路由器做三件事
- * 1) 立刻挂“骨架路由”（含 /login + 外壳），让页面快速可交互
- * 2) 异步拉 /api/nav，按模块 tabs 动态生成业务页面
- * 3) 兜底把没注册的路由转去 NotFound
- */
-
 function NotFound() {
   return <div className="p-6 text-sm text-slate-600">页面不存在或尚未迁移。</div>;
 }
@@ -40,57 +34,50 @@ function pickModuleLoader(reactRelativePath: string):
   return null;
 }
 
-/** 拉取并缓存导航 JSON */
+/** 拉取并缓存导航 JSON（只面向新 Schema：menu 对象 + tabs 对象） */
 async function fetchNav(): Promise<AnyObj> {
   const cached = (window as any).__navjson;
   if (cached) return cached;
   const res = await fetch("/api/nav", { headers: { Accept: "application/json" }, credentials: "include" });
   if (!res.ok) throw new Error(await res.text());
   const json = await res.json();
+  if (!json || typeof json !== "object" || !json.menu || !json.tabs) {
+    throw new Error("Invalid /api/nav schema: expect {menu, tabs}");
+  }
   (window as any).__navjson = json;
   return json;
 }
 
-function flattenTabs(root: AnyObj): TabLike[] {
+function flattenTabsFromNewSchema(nav: AnyObj): TabLike[] {
   const out: TabLike[] = [];
-  const walk = (node: any) => {
-    if (!node || typeof node !== "object") return;
-    const href = node.href || node.path;
-    if (href && typeof href === "string") out.push({ href, template: node.template, title: node.title });
-    if (Array.isArray(node.tabs)) node.tabs.forEach(walk);
-    else if (node.tabs && typeof node.tabs === "object")
-      Object.values(node.tabs).forEach((arr: any) => Array.isArray(arr) && arr.forEach(walk));
-    ["children", "items"].forEach((k) => {
-      const arr = (node as any)[k]; if (Array.isArray(arr)) arr.forEach(walk);
+  const tabs = (nav && nav.tabs) || {};
+  if (tabs && typeof tabs === "object") {
+    Object.keys(tabs).forEach((base) => {
+      const arr = tabs[base];
+      if (Array.isArray(arr)) {
+        arr.forEach((t) => out.push({ href: t.href || t.path, template: t.template, title: t.title }));
+      }
     });
-  };
-  walk(root);
+  }
   const seen = new Set<string>();
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
-/** 首页默认跳转：优先第一个“有模板的 tab（L3）” */
+/** 首页默认跳转：优先 tabs 的第一个“有模板的 tab”；其次 menu 的第一个 L2 */
 function guessHomePath(nav: AnyObj): string {
-  const tabsDict = nav.tabs || {};
-  const bases = Object.keys(tabsDict);
-  for (const b of bases) {
-    const arr = Array.isArray(tabsDict[b]) ? tabsDict[b] : [];
+  const tabs = nav.tabs || {};
+  for (const base of Object.keys(tabs)) {
+    const arr = Array.isArray(tabs[base]) ? tabs[base] : [];
     const firstWithTpl = arr.find((t: any) => !!t.template) || arr[0];
     if (firstWithTpl?.href) return firstWithTpl.href;
   }
-  // 兜底：第一个 L1 → 第一个 L2 → 其第一个 tab，否则 L2
-  const menus = (nav.menu || nav.menus || nav.items || []) as any[];
-  if (Array.isArray(menus) && menus.length) {
-    const l1 = menus.map((m: any) => ({ ...m, href: m.href || m.path || "/" }));
-    const firstL1 = l1[0];
-    const l2 = (firstL1?.children || firstL1?.items || []) as any[];
-    if (Array.isArray(l2) && l2.length) {
-      const base = l2[0].href || l2[0].path || firstL1.href || "/";
-      const arr = tabsDict[base] || [];
-      if (Array.isArray(arr) && arr.length) return arr[0].href || base;
-      return base;
-    }
-    return firstL1.href || "/";
+  // 兜底：menu 的第一个 L1 → 第一个 L2
+  const menuObj = nav.menu || {};
+  const l1Titles = Object.keys(menuObj);
+  if (l1Titles.length) {
+    const l2List = menuObj[l1Titles[0]] || [];
+    const base = (l2List[0] && (l2List[0].href || l2List[0].path)) || "/";
+    return base || "/";
   }
   return "/";
 }
@@ -116,10 +103,10 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
 
   // 2) 外壳 + 业务模块（由 nav.tabs 推导）
   const children: RouteObject[] = [];
-  const tabs = flattenTabs(nav);
+  const tabs = flattenTabsFromNewSchema(nav);
   tabs.forEach((tab) => {
     const href = tab.href || "/";
-    if (!tab.template) return; // 没模板暂不生成页面
+    if (!tab.template) return;
     const rel = htmlTemplateToReactModulePath(tab.template);
     if (!rel) return;
     const loader = pickModuleLoader(rel);

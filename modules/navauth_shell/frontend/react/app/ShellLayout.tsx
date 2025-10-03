@@ -10,12 +10,12 @@ async function ensureNav(): Promise<AnyObj> {
   const cached = (window as any).__navjson;
   if (cached) return cached;
   const res = await fetch("/api/nav", { headers: { Accept: "application/json" }, credentials: "include" });
+  if (!res.ok) throw new Error(await res.text());
   const json = await res.json();
   (window as any).__navjson = json;
   return json;
 }
 
-/** 从 /api/nav 派生 L1/L2/L3 结构（容错：兼容 menu/items/tabs 多种写法） */
 /** 从 /api/nav（新 Schema）派生 L1/L2/L3 结构
  * 仅面向新框架：nav.menu 为对象，nav.tabs 为对象；不再依赖旧 items/children 结构。
  */
@@ -48,7 +48,7 @@ function deriveNavModel(nav: AnyObj) {
     const firstHref = ((l2List?.[0]?.href || l2List?.[0]?.path || "") as string).trim();
     const segs = firstHref.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
     return segs.length ? "/" + segs[0] : "/";
-    };
+  };
 
   if (menuObj && typeof menuObj === "object" && !Array.isArray(menuObj)) {
     Object.keys(menuObj).forEach((l1Title) => {
@@ -67,22 +67,6 @@ function deriveNavModel(nav: AnyObj) {
         : [];
     });
   }
-  return { l1, l2ByL1, tabsDict };
-}
-    });
-  }
-
-  // 再从 l2 里合并（如果有）
-  l1.forEach((one) => {
-    const base = one.href;
-    (l2ByL1[base] || []).forEach((sec) => {
-      const t = (sec as any).tabs || [];
-      if (Array.isArray(t) && t.length) {
-        const key = sec.href || base;
-        (tabsDict as any)[key] = (t as any[]).map((x: any) => ({ ...x, href: x.href || x.path || "/" }));
-      }
-    });
-  });
 
   return { l1, l2ByL1, tabsDict };
 }
@@ -123,7 +107,7 @@ function firstRenderableFromL2(l2Href: string, tabsDict: Record<string, any[]>) 
 
 export default function ShellLayout() {
   const { pathname } = useLocation();
-  const nav = useNavigate();
+  const navigate = useNavigate();
   const [model, setModel] = React.useState<ReturnType<typeof deriveNavModel> | null>(null);
 
   // 交互三态
@@ -149,7 +133,7 @@ export default function ShellLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 路由变化时，若用户没有 hover，更新锁定到当前归属页（避免 pill 与实际路由不同步）
+  // 路由变化时，若用户没有 hover，更新锁定到当前归属页
   React.useEffect(() => {
     if (!model) return;
     if (hoverPath) return;
@@ -187,18 +171,18 @@ export default function ShellLayout() {
     const dest = firstRenderableFromL1(href, model.l2ByL1, model.tabsDict);
     setLockedPath(dest);
     clearHover(0);
-    if (dest !== pathname) nav(dest);
+    if (dest !== pathname) navigate(dest);
   };
   const onPickL2 = (href: string) => {
     const dest = firstRenderableFromL2(href, model.tabsDict);
     setLockedPath(dest);
     clearHover(0);
-    if (dest !== pathname) nav(dest);
+    if (dest !== pathname) navigate(dest);
   };
   const onPickTab = (href: string) => {
     setLockedPath(href);
     clearHover(0);
-    if (href !== pathname) nav(href);
+    if (href !== pathname) navigate(href);
   };
 
   return (

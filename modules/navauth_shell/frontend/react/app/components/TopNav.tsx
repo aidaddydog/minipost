@@ -45,34 +45,35 @@ export default function TopNav({
   }, [items, visualPath]);
 
   // 计算 pill 位置（跟随 visualL1）
-  React.useEffect(() => {
+  const recalc = React.useCallback(() => {
     const rail = railRef.current;
     if (!rail) return;
     const link = rail.querySelector<HTMLAnchorElement>(`a[data-href="${visualL1?.href}"]`);
     if (!link) return;
     const railRect = rail.getBoundingClientRect();
     const linkRect = link.getBoundingClientRect();
-    const left = linkRect.left - railRect.left + rail.scrollLeft - (parseFloat(getComputedStyle(rail).paddingLeft) || 0);
-    const width = Math.max(linkRect.width, parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pill-minw")) || 32);
+    const padLeft = parseFloat(getComputedStyle(rail).paddingLeft || "0") || 0;
+    const left = linkRect.left - railRect.left + rail.scrollLeft - padLeft;
+    const minW = parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pill-minw") || "56") || 56;
+    const width = Math.max(linkRect.width, minW);
     setPill({ left, width });
-  }, [visualL1, items]);
+  }, [visualL1]);
+
+  React.useEffect(() => { recalc(); }, [recalc, items.length]);
 
   // 滚动/缩放时重新定位
   React.useEffect(() => {
     const rail = railRef.current;
     if (!rail) return;
-    const onScroll = () => {
-      // 触发重算
-      setPill((p) => (p ? { ...p } : p));
-    };
-    const onResize = () => setPill((p) => (p ? { ...p } : p));
+    const onScroll = () => recalc();
+    const onResize = () => recalc();
     rail.addEventListener("scroll", onScroll, { passive: true });
     window.addEventListener("resize", onResize, { passive: true });
     return () => {
       rail.removeEventListener("scroll", onScroll);
       window.removeEventListener("resize", onResize);
     };
-  }, []);
+  }, [recalc]);
 
   return (
     <header className="w-full border-b bg-[var(--nav-l1-bg)]" style={{ borderColor: "var(--nav-l1-border)" }}

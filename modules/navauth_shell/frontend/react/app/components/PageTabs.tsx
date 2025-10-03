@@ -59,7 +59,6 @@ export default function PageTabs({
               style={{
                 padding: `var(--nav-l3-py) var(--nav-l3-px)`,
                 borderRadius: "var(--nav-l3-radius)",
-                color: active ? "inherit" : "inherit",
               }}
               onClick={(e) => { e.preventDefault(); onPickTab(t.href); }}
               onFocus={() => setTimeout(() => updateInk(), 0)}

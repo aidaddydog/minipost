@@ -1,8 +1,36 @@
-/* === 63 版动效变量补齐 === */
+/* === 63 版动效变量补齐（新框架） === */
 :root{
   --anim-speed: .22s;
   --anim-ease: cubic-bezier(.22,.61,.36,1);
   --pill-minw: 56px;
   --tab-ink-pad-x: 10px; /* 文字左右内边距，便于 Ink 不贴边 */
   --tab-ink-ml: 0px;     /* Ink 整体左移修正，如字体度量导致偏移可微调 */
+
+  /* 导航主题变量（若主题已有则复用已有定义） */
+  --nav-l1-height: 48px;
+  --nav-l2-height: 44px;
+  --nav-l3-height: 40px;
+
+  --nav-l1-bg: #fff;
+  --nav-l2-bg: #fff;
+  --nav-l3-bg: #fff;
+
+  --nav-l1-border: rgba(0,0,0,.08);
+  --nav-l2-sep: rgba(0,0,0,.08);
+  --nav-l1-item-active-bg: rgba(0,0,0,.06);
+  --nav-l1-item-active-fg: #111;
+
+  --nav-l1-item-px: 14px;
+  --nav-l1-item-py: 8px;
+  --nav-l1-radius: 999px;
+
+  --nav-l2-item-px: 10px;
+  --nav-l2-item-py: 6px;
+  --nav-l2-item-radius: 8px;
+
+  --nav-l3-gap: 10px;
+  --nav-l3-px: 10px;
+  --nav-l3-py: 8px;
+  --nav-l3-radius: 8px;
+  --nav-l3-underline: #111;
 }

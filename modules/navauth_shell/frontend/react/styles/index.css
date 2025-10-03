@@ -1,4 +1,4 @@
-/* 关键：注入旧框架的主题/导航变量 */
+/* 关键：主题与导航动效变量/样式必须最先引入 */
 @import "../../../../_themes/default/root.css";
 @import "../../../../_themes/default/_63_vars_patch.css";
 @import "./_nav_effects.css";
@@ -7,34 +7,4 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 基础语义变量（可被 root.css 中的变量覆盖或补充） */
-:root{
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
-}
-
-/* 单一 Layer 宿主（登录页确保不留残层以免遮挡点击） */
-#layer-root[data-layer-host="true"]{
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9999;
-}
-#layer-root .lm-backdrop{
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.28);
-  -webkit-backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  opacity: 0; transition: opacity .15s ease;
-  pointer-events: auto;
-}
-#layer-root .lm-backdrop.show{ opacity: 1; }
-#layer-root > * { pointer-events: auto; }
-
-html[data-layer-locked="true"],
-body[data-layer-locked="true"]{ overflow: hidden; }
+/* 其它全局覆盖可写在下方（保持简短） */

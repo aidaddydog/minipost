@@ -1,4 +1,4 @@
-/* === 导航动效（对齐 63 版） === */
+/* === 导航动效（Pill + Ink） === */
 .nav-rail .pill{
   height: calc(var(--nav-l1-height) - 14px);
   min-width: var(--pill-minw);
