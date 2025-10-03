@@ -70,6 +70,11 @@ export default function ShellLayout() {
   const { pathname } = useLocation();
   const [model, setModel] = React.useState<ReturnType<typeof deriveNavModel> | null>(null);
 
+  // 登录页不渲染外壳
+  if (pathname === "/login") {
+    return <Outlet />;
+  }
+
   React.useEffect(() => {
     (async () => {
       const nav = await ensureNav();
