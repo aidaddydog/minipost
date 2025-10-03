@@ -1,8 +1,1 @@
-kind: menu.register
-l1:
-  - key: __primer__
-    text: "__primer__"
-    href: "/__primer__"
-    order: 99999
-    hidden: true
-l2: []   # 无二级
+{}  # 新聚合器要求 menu.register.yaml 为“对象（L1 文本 → L2 列表）”。基座默认无菜单，所以用空对象。
