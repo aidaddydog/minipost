@@ -1,155 +1,147 @@
 # app/main.py
 # -*- coding: utf-8 -*-
-from fastapi import FastAPI, Request, Depends, HTTPException
-from fastapi.responses import HTMLResponse, RedirectResponse, FileResponse
+from __future__ import annotations
+
+from fastapi import FastAPI, Request, Depends
+from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from fastapi import APIRouter
 
 from pathlib import Path
 import importlib.util
+import logging
+from typing import Any, Dict
 
 from app.settings import settings
 from app.api.health import router as health_router
 from app.api.v1.nav import router as nav_router
-from app.deps import current_user
-from app.common.utils import refresh_nav_cache
-from app.services.nav_loader import rebuild_nav
+from app.deps import current_user  # 统一鉴权
+from app.common.utils import get_nav_cache
+from app.services.nav_loader import rebuild_nav  # 启动预热
 
+logger = logging.getLogger("minipost")
+app = FastAPI(title="minipost")
 
-# ===== React SPA 入口（如存在则优先） =====
-def _spa_index_path() -> Path | None:
-    p = Path("static/assets/index.html")
-    return p if p.exists() else None
-
-# ===== 应用与静态/模板 =====
-app = FastAPI(title="minipost", version="0.1.0")
-
-# 推荐：模块静态
-app.mount("/modules_static", StaticFiles(directory="modules"), name="modules_static")
-# 兼容：历史硬编码的 /modules 路径（不推荐新用，但保留避免 404）
-app.mount("/modules", StaticFiles(directory="modules"), name="modules")
-# 全局静态
+# ---- 静态资源 ----
+# Vite 构建产物在 static/assets 下
 app.mount("/static", StaticFiles(directory="static"), name="static")
 
-# 模板根设为仓库根，便于直接引用 modules/**/frontend/templates/*.html
+# Jinja 模板根（L3 模板用）
 templates = Jinja2Templates(directory=".")
 app.state.templates = templates
 
-# ===== 内建路由 =====
+# ---- 内建路由 ----
 app.include_router(health_router)
 app.include_router(nav_router)
 
-# 登录 / RBAC（示例模块，仍保留）
+# 登录 / RBAC（示例模块照常保留）
 from modules.auth_login.backend.routers.auth_login import router as login_router
 from modules.core.backend.routers.rbac_admin import router as rbac_router
 app.include_router(login_router)
 app.include_router(rbac_router)
 
-# ===== 自动 include 全部模块后端路由（一次性实现，之后新增模块无需改全局） =====
-# app/main.py（节选）——替换 _auto_include_module_routers() 的实现
-from pathlib import Path
-import importlib.util
-import traceback
-import logging
-
-logger = logging.getLogger("minipost")
-
-def _auto_include_module_routers():
+# ---- 动态加载模块后端路由（一次性实现）----
+def _auto_include_module_routers() -> None:
     base = Path("modules")
-    if not base.exists(): 
+    if not base.exists():
         return
-    skip = {
-        str(Path("modules/auth_login/backend/routers/auth_login.py")),
-        str(Path("modules/core/backend/routers/rbac_admin.py")),
-    }
-    for fp in sorted(base.rglob("backend/routers/*.py")):
-        rel = str(fp)
-        if rel in skip:
-            continue
+    for py in base.rglob("backend/routers/*.py"):
+        name = "modules_" + str(py.with_suffix("")).replace("/", "_").replace("\\", "_")
         try:
-            spec = importlib.util.spec_from_file_location(f"mod_router__{fp.stem}", str(fp))
-            assert spec and spec.loader
+            spec = importlib.util.spec_from_file_location(name, py)
+            if not spec or not spec.loader:
+                continue
             mod = importlib.util.module_from_spec(spec)
-            spec.loader.exec_module(mod)
+            spec.loader.exec_module(mod)  # type: ignore
             r = getattr(mod, "router", None)
             if r is not None:
                 app.include_router(r)
-        except Exception:
-            # 以 WARNING 级别打印出错模块与栈信息，避免“静默失败”
-            logger.warning("Auto-include router failed: %s\n%s", rel, traceback.format_exc())
-            continue
+                logger.info("Included router from %s", py)
+        except Exception as e:
+            logger.exception("Failed to include router from %s: %s", py, e)
 
 _auto_include_module_routers()
 
-# ===== 启动后构建一次聚合缓存（也支持热重载接口） =====
-@app.on_event("startup")
-def on_start():
-    refresh_nav_cache()
+# ---- SPA 入口查找（优先用 Vite 产物）----
+def _find_spa_index() -> str | None:
+    candidates = [
+        "/app/static/assets/index.html",  # Docker 镜像内路径
+        "static/assets/index.html",       # 本地运行
+        "/app/static/index.html",
+        "static/index.html",
+        "index.html",                     # 开发兜底
+    ]
+    for p in candidates:
+        try:
+            if Path(p).exists():
+                return p
+        except Exception:
+            continue
+    return None
 
-# ===== 壳层首页（一级/二级/页签“胶囊”） =====
-@app.get("/", response_class=HTMLResponse)
-def index(request: Request, user=Depends(current_user)):
-    spa = _spa_index_path()
-    if spa:
-        with open(spa, 'r', encoding='utf-8') as f:
-            return HTMLResponse(content=f.read(), status_code=200)
-    return templates.TemplateResponse(
-        "modules/navauth_shell/frontend/templates/nav_shell.html",
-        {"request": request, "THEME_NAME": settings.THEME_NAME, "USE_REAL_NAV": settings.USE_REAL_NAV},
-    )
-# ===== 通用 L3 页面渲染器（一次性实现，后续只改模块 YAML 即可） =====
+# ---- 首页：始终返回 SPA（与是否有模块无关）----
+@app.get("/", include_in_schema=False, response_class=HTMLResponse)
+def spa_root(_: Request):
+    spa = _find_spa_index()
+    if not spa:
+        # 极限兜底：至少给一个挂载点
+        return HTMLResponse("<!doctype html><title>minipost</title><div id='root'></div>", status_code=200)
+    return FileResponse(spa)
+
+# ---- L3 模板猜测（当 tabs.register 未填 template 时）----
 def _guess_template_from_href(href: str) -> str | None:
-    """
-    在未提供 template 字段时的兜底策略（启发式）：
-    - 例如：/logistics/channel/custom
-      优先尝试：
-        modules/logistics_channel/logistics_custom/frontend/templates/logistics_custom.html
-        modules/logistics_channel/logistics_custom/frontend/templates/index.html
-      然后在 modules/**/frontend/templates/ 下 fuzzy 搜索包含最后一段名的 html。
-    """
     parts = [p for p in href.strip("/").split("/") if p]
     if len(parts) >= 3:
-        l1, l2, l3 = parts[0], parts[1], parts[2]
-        cand = [
+        l1, l2, l3 = parts[:3]
+        cands = [
             Path(f"modules/{l1}_{l2}/{l1}_{l3}/frontend/templates/{l1}_{l3}.html"),
             Path(f"modules/{l1}_{l2}/{l1}_{l3}/frontend/templates/index.html"),
             Path(f"modules/{l1}_{l2}/{l3}/frontend/templates/{l3}.html"),
             Path(f"modules/{l1}_{l2}/{l3}/frontend/templates/index.html"),
         ]
-        for p in cand:
-            if p.exists(): return str(p)
+        for p in cands:
+            if p.exists():
+                return str(p)
         # 模糊兜底
         base = Path("modules")
+        needle = f"/{l3}.html"
         for p in base.rglob("frontend/templates/*.html"):
-            if f"/{l3}.html" in str(p).replace("\\","/"):
+            if needle in str(p).replace("\\", "/"):
                 return str(p)
     return None
 
-@app.get("/{full_path:path}", response_class=HTMLResponse)
+# ---- 通用 L3：找得到就渲染模板；找不到一律回落 SPA ----
+@app.get("/{full_path:path}", include_in_schema=False, response_class=HTMLResponse)
 def serve_tab_page(full_path: str, request: Request, user=Depends(current_user)):
-    # /api 与静态路径交给其他路由处理
-    if full_path.startswith(('api/', 'static/', 'modules/', 'modules_static/', 'openapi.json', 'docs', 'healthz')):
-        raise HTTPException(status_code=404)
-    spa = _spa_index_path()
-    if spa:
-        with open(spa, 'r', encoding='utf-8') as f:
-            return HTMLResponse(content=f.read(), status_code=200)
-    # ==== 以下为旧式 Jinja 模板回退（保持兼容）====
-    href = "/" + full_path if not full_path.startswith("/") else full_path
-    nav = rebuild_nav(write_cache=False)
-    tabs = nav.get("tabs") or {}
-    template_path = None
-    for base, items in tabs.items():
-        for it in items:
+    href = "/" + (full_path or "")
+    cache = get_nav_cache()
+    data: Dict[str, Any] = cache.get("data") or cache
+    tabs: Dict[str, Any] = data.get("tabs") or {}
+
+    template_path: str | None = None
+    for _, items in tabs.items():
+        for it in (items or []):
             if it.get("href") == href:
-                template_path = it.get("template")
-                if not template_path:
-                    template_path = _guess_template_from_href(href)
+                template_path = (it.get("template") or "").strip() or _guess_template_from_href(href)
                 break
-        if template_path: break
-    if not template_path:
-        raise HTTPException(status_code=404, detail="page not registered")
-    return templates.TemplateResponse(
-        template_path,
-        {"request": request, "THEME_NAME": settings.THEME_NAME},
-    )
+        if template_path:
+            break
+
+    if template_path:
+        return templates.TemplateResponse(template_path, {"request": request, "THEME_NAME": settings.THEME_NAME})
+
+    # 关键改动：未注册路径 → 回落到 SPA（壳层始终存在）
+    spa = _find_spa_index()
+    if not spa:
+        return HTMLResponse("<!doctype html><div id='root'></div>", status_code=200)
+    return FileResponse(spa)
+
+# ---- 启动预热导航缓存（让 /api/nav 首次更快）----
+@app.on_event("startup")
+def _warmup():
+    try:
+        rebuild_nav(write_cache=True)
+        logger.info("导航缓存预热完成")
+    except Exception as e:
+        logger.warning("导航缓存预热失败：%s", e)
