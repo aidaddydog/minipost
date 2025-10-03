@@ -1,5 +1,5 @@
 import React from "react";
-import { Outlet, Link, useLocation } from "react-router-dom";
+import { Outlet, useLocation } from "react-router-dom";
 import TopNav from "./components/TopNav";
 import SubNav from "./components/SubNav";
 import PageTabs from "./components/PageTabs";
@@ -17,7 +17,7 @@ async function ensureNav(): Promise<AnyObj> {
 
 /** 从 /api/nav 派生 L1/L2/L3 结构（容错：兼容 menu/items/tabs 多种写法） */
 function deriveNavModel(nav: AnyObj) {
-  // L1/ L2
+  // L1 / L2
   const l1: Array<any> = [];
   const l2ByL1: Record<string, any[]> = {};
   const rootMenus = (nav.menus || nav.menu || nav.items || []) as any[];
@@ -38,20 +38,21 @@ function deriveNavModel(nav: AnyObj) {
   const fromNavTabs = nav.tabs || {};
   if (fromNavTabs && typeof fromNavTabs === "object") {
     Object.keys(fromNavTabs).forEach((base) => {
-      const arr2 = fromNavTabs[base];
+      const arr2 = (fromNavTabs as any)[base];
       if (Array.isArray(arr2)) {
         tabsDict[base] = arr2.map((t: any) => ({ ...t, href: t.href || t.path || "/" }));
       }
     });
   }
+
   // 再从 l2 里合并（如果有）
   l1.forEach((one) => {
     const base = one.href;
     (l2ByL1[base] || []).forEach((sec) => {
-      const key = sec.href || base;
-      const t = (sec.tabs || []) as any[];
-      if (t.length) {
-        tabsDict[key] = t.map((x) => ({ ...x, href: x.href || x.path || "/" }));
+      const t = (sec as any).tabs || [];
+      if (Array.isArray(t) && t.length) {
+        const key = sec.href || base;
+        (tabsDict as any)[key] = (t as any[]).map((x: any) => ({ ...x, href: x.href || x.path || "/" }));
       }
     });
   });
@@ -65,8 +66,8 @@ export function ShellHeaderSkeleton() {
   );
 }
 
-export function ShellLayout() {
-  const loc = useLocation();
+export default function ShellLayout() {
+  const { pathname } = useLocation();
   const [model, setModel] = React.useState<ReturnType<typeof deriveNavModel> | null>(null);
 
   React.useEffect(() => {
@@ -85,26 +86,22 @@ export function ShellLayout() {
     );
   }
 
-  const pathname = loc.pathname || "/";
-  // 当前激活 L1：以最长前缀匹配
-  const activeL1 = model.l1
-    .filter((m) => pathname === m.href || pathname.startsWith(m.href + "/"))
-    .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0))[0] || model.l1[0];
+  const activeL1 =
+    model.l1
+      .filter((it) => pathname === it.href || pathname.startsWith((it.href || "/") + "/"))
+      .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0))[0] || model.l1[0];
 
   const l2 = model.l2ByL1[activeL1?.href || ""] || [];
 
-  // 选用的 L3：优先匹配到 L2 的 base，再退回 L1 base
   const tabs =
     model.tabsDict[pathname] ||
-    model.tabsDict[(l2.find((x) => pathname.startsWith(x.href + "/"))?.href) || ""] ||
+    model.tabsDict[(l2.find((x: any) => pathname.startsWith((x.href || "") + "/"))?.href) || ""] ||
     model.tabsDict[activeL1?.href || ""] ||
     [];
 
   return (
-    <div className="min-h-screen bg-[var(--background)] text-[var(--foreground)]">
-      {/* L1 顶栏 */}
-      <TopNav items={model.l1} activePath={pathname} />
-
+    <div>
+      <TopNav items={model.l1} activePath={pathname} l2ByL1={model.l2ByL1} tabsDict={model.tabsDict} />
       {/* L2 二级 */}
       {l2.length > 0 && <SubNav items={l2} activePath={pathname} />}
 
@@ -118,5 +115,3 @@ export function ShellLayout() {
     </div>
   );
 }
-
-export default ShellLayout;
