@@ -75,7 +75,7 @@ export default function TopNav({
   }, []);
 
   return (
-    <header className="w-full border-b bg-[var(--nav-l1-bg)]" style={{ borderColor: "var(--nav-l1-sep)" }}
+    <header className="w-full border-b bg-[var(--nav-l1-bg)]" style={{ borderColor: "var(--nav-l1-border)" }}
             onMouseLeave={onLeaveHeader}>
       <div className="mx-auto w-full max-w-[1200px] h-[var(--nav-l1-height)] flex items-center px-4">
         <nav ref={railRef} className="nav-rail relative w-full overflow-x-auto whitespace-nowrap pr-2">

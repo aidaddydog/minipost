@@ -1,5 +1,7 @@
 /* 关键：注入旧框架的主题/导航变量 */
 @import "../../../../_themes/default/root.css";
+@import "../../../../_themes/default/_63_vars_patch.css";
+@import "./_nav_effects.css";
 
 @tailwind base;
 @tailwind components;
@@ -36,6 +38,3 @@
 
 html[data-layer-locked="true"],
 body[data-layer-locked="true"]{ overflow: hidden; }
-
-@import "../../../../_themes/default/_63_vars_patch.css";
-@import "./_nav_effects.css";
