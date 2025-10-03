@@ -5,7 +5,7 @@ import {
   RouteObject,
   Navigate,
 } from "react-router-dom";
-import { ShellLayout } from "./ShellLayout";
+import ShellLayout from "./ShellLayout";
 
 function NotFound() {
   return <div className="p-6 text-sm text-slate-600">页面不存在或尚未迁移。</div>;
@@ -14,18 +14,11 @@ function NotFound() {
 type AnyObj = Record<string, any>;
 type TabLike = { href?: string; template?: string; title?: string };
 
+/** 拉取并缓存导航 JSON */
 async function fetchNav(): Promise<AnyObj> {
   const cached = (window as any).__navjson;
   if (cached) return cached;
-
-  const res = await fetch("/api/nav", {
-    headers: { Accept: "application/json" },
-    credentials: "include",              // ← 关键：携带登录 Cookie
-  });
-  if (res.status === 401) {
-    window.location.assign("/login");
-    throw new Error("Unauthorized");
-  }
+  const res = await fetch("/api/nav", { headers: { Accept: "application/json" }, credentials: "include" });
   if (!res.ok) throw new Error(await res.text());
   const json = await res.json();
   (window as any).__navjson = json;
@@ -42,7 +35,7 @@ function flattenTabs(root: AnyObj): TabLike[] {
     else if (node.tabs && typeof node.tabs === "object")
       Object.values(node.tabs).forEach((arr: any) => Array.isArray(arr) && arr.forEach(walk));
     ["children", "items"].forEach((k) => {
-      const arr = node[k]; if (Array.isArray(arr)) arr.forEach(walk);
+      const arr = (node as any)[k]; if (Array.isArray(arr)) arr.forEach(walk);
     });
   };
   walk(root);
@@ -57,12 +50,11 @@ function htmlTemplateToReactModulePath(template: string): string | null {
   return `modules/${m[1]}/frontend/react/pages/${m[2]}.tsx`;
 }
 
-// 合法 glob（以 ./ 或 / 开头）
-const gRel = import.meta.glob("../../../../modules/**/frontend/react/pages/**/*.{tsx,jsx}");
-const gAbs = import.meta.glob("/modules/**/frontend/react/pages/**/*.{tsx,jsx}");
-const modulesMap: Record<string, any> = { ...gRel, ...gAbs };
-function pickModuleLoader(reactRelativePath: string): any | null {
-  for (const k in modulesMap) if (k.endsWith(reactRelativePath)) return modulesMap[k];
+// 选择动态 import loader（由 Vite 处理）
+function pickModuleLoader(reactRelativePath: string): (() => Promise<{ default: React.ComponentType<any> }>) | null {
+  // 通过 vite 的 import.meta.glob 生成的模块表去匹配
+  const modulesMap = (import.meta as any).glob("/modules/**/frontend/react/pages/**/*.tsx");
+  for (const k in modulesMap) if (k.endsWith(reactRelativePath)) return (modulesMap as any)[k];
   return null;
 }
 
@@ -92,12 +84,14 @@ function guessHomePath(nav: AnyObj): string {
   return "/";
 }
 
+/** 根据 nav 构造 routes */
 function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
   const children: RouteObject[] = [];
-  const tabs = flattenTabs(nav);
 
+  // 依据 nav.tabs（以及各 L2 的 tabs）推导页面
+  const tabs = flattenTabs(nav);
   tabs.forEach((tab) => {
-    const href = tab.href!;
+    const href = tab.href || "/";
     const rel = tab.template ? htmlTemplateToReactModulePath(tab.template) : null;
     if (!rel) return;
     const loader = pickModuleLoader(rel);
@@ -135,29 +129,10 @@ function buildSkeletonRouter(): any {
   ]);
 }
 
-/** 仅登录页（不拉 /api/nav，不装外壳） */
-function buildLoginOnlyRouter(): any {
-  const rel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
-  const loader = pickModuleLoader(rel);
-  const Login = loader ? React.lazy(loader as any) : () => <div>Login</div>;
-  return createBrowserRouter([
-    { path: "/login", element: <React.Suspense fallback={<div />}><Login /></React.Suspense> },
-    { path: "*", element: <Navigate to="/login" replace /> },
-  ]);
-}
-
 export function YamlRouter() {
-  const [router, setRouter] = React.useState<any>(null);
+  const [router, setRouter] = React.useState<any>(() => buildSkeletonRouter());
 
   React.useEffect(() => {
-    const path = window.location.pathname;
-    if (path === "/login") {
-      setRouter(buildLoginOnlyRouter());
-      return;
-    }
-    // 先挂一个 skeleton，让外壳/导航能尽快出现
-    setRouter(buildSkeletonRouter());
-    // 然后异步拉导航并替换为完整路由
     (async () => {
       try {
         const nav = await fetchNav();
