@@ -1,0 +1,8 @@
+kind: menu.register
+l1:
+  - key: __primer__
+    text: "__primer__"
+    href: "/__primer__"
+    order: 99999
+    hidden: true
+l2: []   # 无二级
