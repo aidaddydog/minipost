@@ -1,6 +1,0 @@
-# modules/logistics_custom/config/menu.register.yaml
-物流:
-  - text: 自定义物流
-    href: /logistics/custom
-    order: 460
-    icon: ""
