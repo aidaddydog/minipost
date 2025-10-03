@@ -1,7 +1,0 @@
-# modules/system_update/config/tabs.register.yaml
-"/settings/system-update":
-  - key: about
-    text: 关于
-    href: /settings/system-update/about
-    order: 100
-    default: true
