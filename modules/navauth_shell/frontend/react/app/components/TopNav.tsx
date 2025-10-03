@@ -1,43 +1,40 @@
 import React from "react";
 import { Link } from "react-router-dom";
 
-type Item = { href: string; title?: string; text?: string; icon?: string };
-type AnyObj = Record<string, any>;
+type Item = { href: string; title?: string; text?: string };
+type L2Map = Record<string, Array<{ href: string; title?: string; text?: string }>>;
+type TabsDict = Record<string, Array<{ href: string; title?: string; text?: string }>>;
 
-function resolveFirstTabHref(l1Href: string): string {
-  const nav: AnyObj | undefined = (window as any).__navjson;
-  if (!nav) return l1Href;
-
-  // 先找 L1 -> L2 -> 第一个 tab
-  const items = (nav.items || []) as any[];
-  const l1 = items.find((it: any) => (it.href || it.path) === l1Href);
-  const l2 = l1 ? (l1.children || l1.items || []) : [];
-  if (Array.isArray(l2) && l2.length) {
-    const base = l2[0].href || l2[0].path || l1Href;
-    const tabs = (nav.tabs && nav.tabs[base]) || [];
-    if (Array.isArray(tabs) && tabs.length) return tabs[0].href || base;
+/** 根据 L1 href 解析“第一个可渲染 tab” */
+function firstRenderableTab(l1Href: string, l2ByL1: L2Map, tabsDict: TabsDict): string {
+  const l2 = l2ByL1[l1Href] || [];
+  if (l2.length) {
+    const base = l2[0].href || l1Href;
+    const t = tabsDict[base] || [];
+    if (t.length) return t[0].href || base;
     return base;
   }
-
-  // 再直接从 tabs 字典查
-  const tabsDict = nav.tabs || {};
-  const tabs = tabsDict[l1Href] || [];
-  if (Array.isArray(tabs) && tabs.length) return tabs[0].href || l1Href;
-
+  const t = tabsDict[l1Href] || [];
+  if (t.length) return t[0].href || l1Href;
   return l1Href;
 }
 
-export default function TopNav({ items, activePath }: { items: Item[]; activePath: string }) {
+export default function TopNav({
+  items, activePath, l2ByL1, tabsDict,
+}: {
+  items: Item[];
+  activePath: string;
+  l2ByL1: L2Map;
+  tabsDict: TabsDict;
+}) {
   return (
     <header
       className="sticky top-0 z-40 w-full border-b bg-[var(--nav-l1-bg)]"
       style={{ boxShadow: "var(--nav-l1-shadow)" }}
     >
       <div className="mx-auto w-full max-w-[1200px] flex items-center justify-between h-[var(--nav-l1-height)] px-4">
-        {/* 左侧：品牌/Logo（可按需替换） */}
-        <Link to="/" className="font-semibold text-[15px]">minipost</Link>
+        <a href="/" className="font-semibold text-[15px]">minipost</a>
 
-        {/* 右侧：一级菜单（胶囊样式） */}
         <nav
           className="flex items-center"
           style={{
@@ -50,7 +47,7 @@ export default function TopNav({ items, activePath }: { items: Item[]; activePat
         >
           {items.map((it) => {
             const label = it.title || it.text || it.href;
-            const target = resolveFirstTabHref(it.href);
+            const target = firstRenderableTab(it.href, l2ByL1, tabsDict);
             const active =
               activePath === it.href ||
               activePath.startsWith(it.href + "/") ||
@@ -59,7 +56,7 @@ export default function TopNav({ items, activePath }: { items: Item[]; activePat
             return (
               <Link
                 key={it.href}
-                to={target}                 /* ← 直达第一个可渲染的 tab 路径 */
+                to={target}
                 className="text-sm"
                 style={{
                   padding: `var(--nav-l1-item-py) var(--nav-l1-item-px)`,
