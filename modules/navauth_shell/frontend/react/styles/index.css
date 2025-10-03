@@ -1,3 +1,5 @@
+@import "../../../../_themes/default/root.css";  /* ← 注入导航/登录页变量 */
+
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -14,11 +16,11 @@
 }
 
 /* 单一 Layer 宿主 + 背景模糊层（修复 filter/backdrop stacking） */
-#layer-root[data-layer-host]{
+#layer-root[data-layer-host="true"]{
   position: fixed;
   inset: 0;
-  z-index: 1000;
-  pointer-events: none;
+  pointer-events: none; /* 默认不拦截点击，只有子层可点 */
+  z-index: 9999;
 }
 #layer-root .lm-backdrop{
   position: absolute;
