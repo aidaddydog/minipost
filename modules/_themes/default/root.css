@@ -1,38 +1,106 @@
-/* 关键：注入旧框架的主题/导航变量 */
-@import "../../../../_themes/default/root.css";
+/* =========================================================
+   全站主题 & 登录页/导航变量（供 shadcn + 自定义样式使用）
+   放置路径：modules/_themes/default/root.css
+   ========================================================= */
 
-@tailwind base;
-@tailwind components;
-@tailwind utilities;
+/* —— 基础主题（可根据你的旧 UI 色板继续微调） —— */
+:root {
+  /* 基础语义变量（与 shadcn / Tailwind 变量兼容使用） */
+  --background: #ffffff;
+  --foreground: #0f172a;         /* slate-900 */
+  --primary:   #0b0b0b;          /* 主按钮/主强调 */
+  --primary-foreground: #ffffff;
+  --secondary: #f2f4f7;
+  --secondary-foreground: #0f172a;
+  --muted:     #f5f7fb;
+  --muted-foreground: #475569;    /* slate-600 */
+  --accent:    #111827;
+  --accent-foreground: #ffffff;
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
 
-/* 基础语义变量（可被 root.css 中的变量覆盖或补充） */
-:root{
-  --background: 0 0% 100%;
-  --foreground: 222.2 84% 4.9%;
-  --primary: 222.2 47.4% 11.2%;
-  --primary-foreground: 210 40% 98%;
-  --border: 214.3 31.8% 91.4%;
-  --input: 214.3 31.8% 91.4%;
-  --ring: 222.2 84% 4.9%;
+  --border: #e5e7eb;              /* slate-200 */
+  --input:  #e5e7eb;
+  --ring: rgba(0,0,0,0.25);       /* 聚焦环 */
+
+  --radius: 10px;                 /* 全局圆角基线（业务页） */
+
+  /* 导航（L1/L2/L3）变量：像素还原入口 */
+  /* —— L1 顶栏 —— */
+  --nav-l1-height: 56px;
+  --nav-l1-bg: #ffffff;
+  --nav-l1-border: rgba(0,0,0,0.06);
+  --nav-l1-radius: 999px;
+  --nav-l1-item-gap: 8px;
+  --nav-l1-item-px: 14px;
+  --nav-l1-item-py: 8px;
+  --nav-l1-item-hover-bg: rgba(0,0,0,0.04);
+  --nav-l1-item-active-bg: #0b0b0b;
+  --nav-l1-item-active-fg: #ffffff;
+  --nav-l1-shadow: 0 1px 2px rgba(0,0,0,0.04);
+
+  /* —— L2 次级导航 —— */
+  --nav-l2-height: 44px;
+  --nav-l2-bg: #ffffff;
+  --nav-l2-sep: rgba(0,0,0,0.06);
+  --nav-l2-item-px: 12px;
+  --nav-l2-item-py: 8px;
+  --nav-l2-item-radius: 10px;
+  --nav-l2-item-hover-bg: rgba(0,0,0,0.04);
+  --nav-l2-item-active-bg: #111827;
+  --nav-l2-item-active-fg: #ffffff;
+
+  /* —— L3 页签 —— */
+  --nav-l3-height: 40px;
+  --nav-l3-bg: #ffffff;
+  --nav-l3-underline: #0b0b0b;
+  --nav-l3-gap: 8px;
+  --nav-l3-px: 10px;
+  --nav-l3-py: 8px;
+  --nav-l3-radius: 8px;
 }
 
-/* 单一 Layer 宿主（登录页确保不留残层以免遮挡点击） */
-#layer-root[data-layer-host="true"]{
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: 9999;
-}
-#layer-root .lm-backdrop{
-  position: absolute; inset: 0;
-  background: rgba(0,0,0,.28);
-  -webkit-backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  opacity: 0; transition: opacity .15s ease;
-  pointer-events: auto;
-}
-#layer-root .lm-backdrop.show{ opacity: 1; }
-#layer-root > * { pointer-events: auto; }
+/* —— 登录页作用域变量（仅 /login 生效）——
+   登录页挂载时在 <html> 添加 data-page="login"
+   详见：auth_login.tsx 的 useEffect  */
+html[data-page="login"] {
+  --background: #ffffff;
+  --foreground: #0f172a;
 
-html[data-layer-locked="true"],
-body[data-layer-locked="true"]{ overflow: hidden; }
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+
+  --primary: #0b0b0b;
+  --primary-foreground: #ffffff;
+
+  --secondary: #f2f4f7;
+  --secondary-foreground: #0f172a;
+
+  --muted: #f5f7fb;
+  --muted-foreground: #475569;
+
+  --accent: #111827;
+  --accent-foreground: #ffffff;
+
+  --destructive: #ef4444;
+  --destructive-foreground: #ffffff;
+
+  --border: #e5e7eb;
+  --input:  #e5e7eb;
+  --ring: rgba(0,0,0,0.20);   /* 登录页的聚焦环更轻 */
+  --radius: 12px;             /* 登录页整体更圆润 */
+
+  /* 登录页专用尺寸（如需用） */
+  --login-field-height: 48px;
+  --login-gap-y: 24px;
+}
+
+/* —— 可选：全局字体/抗锯齿（按需启用） —— */
+/*
+:root {
+  --font-sans: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI",
+               Roboto, "Helvetica Neue", Arial, "Noto Sans", "Apple Color Emoji",
+               "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+}
+html { font-family: var(--font-sans); -webkit-font-smoothing: antialiased; }
+*/
