@@ -16,32 +16,59 @@ async function ensureNav(): Promise<AnyObj> {
 }
 
 /** 从 /api/nav 派生 L1/L2/L3 结构（容错：兼容 menu/items/tabs 多种写法） */
+/** 从 /api/nav（新 Schema）派生 L1/L2/L3 结构
+ * 仅面向新框架：nav.menu 为对象，nav.tabs 为对象；不再依赖旧 items/children 结构。
+ */
 function deriveNavModel(nav: AnyObj) {
-  // L1 / L2
   const l1: Array<any> = [];
   const l2ByL1: Record<string, any[]> = {};
-  const rootMenus = (nav.menus || nav.menu || nav.items || []) as any[];
-  const arr = Array.isArray(rootMenus) ? rootMenus : [];
-
-  arr.forEach((it) => {
-    const href = it.href || it.path || "/";
-    const item = { ...it, href };
-    l1.push(item);
-    const children = it.children || it.items || [];
-    l2ByL1[href] = Array.isArray(children)
-      ? children.map((c: any) => ({ ...c, href: c.href || c.path || "/" }))
-      : [];
-  });
-
-  // L3 tabs：有的放在 nav.tabs，有的在具体菜单项内部
   const tabsDict: Record<string, any[]> = {};
-  const fromNavTabs = nav.tabs || {};
-  if (fromNavTabs && typeof fromNavTabs === "object") {
-    Object.keys(fromNavTabs).forEach((base) => {
-      const arr2 = (fromNavTabs as any)[base];
-      if (Array.isArray(arr2)) {
-        tabsDict[base] = arr2.map((t: any) => ({ ...t, href: t.href || t.path || "/" }));
+
+  // 1) L3 tabs：直接抄给 tabsDict（保持字段名统一：href/title/text/template）
+  const fromTabs = (nav && typeof nav === "object" ? (nav as any).tabs : null) || {};
+  if (fromTabs && typeof fromTabs === "object") {
+    Object.keys(fromTabs).forEach((base) => {
+      const arr = (fromTabs as any)[base];
+      if (Array.isArray(arr)) {
+        tabsDict[base] = arr.map((t: any) => ({
+          ...t,
+          href: t.href || t.path || "/",
+          title: t.title || t.text,
+          text: t.text || t.title,
+        }));
       }
+    });
+  }
+
+  // 2) L1/L2：从 nav.menu（对象）构造
+  const menuObj = (nav && typeof nav === "object" ? (nav as any).menu : null) || null;
+
+  // 辅助：根据 L2 列表推导 L1 基础路径（/logistics/channel → /logistics）
+  const l1PathFromL2List = (l2List: any[]): string => {
+    const firstHref = ((l2List?.[0]?.href || l2List?.[0]?.path || "") as string).trim();
+    const segs = firstHref.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
+    return segs.length ? "/" + segs[0] : "/";
+    };
+
+  if (menuObj && typeof menuObj === "object" && !Array.isArray(menuObj)) {
+    Object.keys(menuObj).forEach((l1Title) => {
+      const l2List = (menuObj as any)[l1Title] || [];
+      const baseHref = l1PathFromL2List(l2List);
+      // L1
+      l1.push({ href: baseHref, title: l1Title, text: l1Title });
+      // L2
+      l2ByL1[baseHref] = Array.isArray(l2List)
+        ? l2List.map((c: any) => ({
+            ...c,
+            href: c.href || c.path || "/",
+            title: c.title || c.text,
+            text: c.text || c.title,
+          }))
+        : [];
+    });
+  }
+  return { l1, l2ByL1, tabsDict };
+}
     });
   }
 
