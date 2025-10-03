@@ -1,10 +1,11 @@
-@import "../../../../_themes/default/root.css";  /* ← 注入导航/登录页变量 */
+/* 关键：注入旧框架的主题/导航变量 */
+@import "../../../../_themes/default/root.css";
 
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
 
-/* 继承服务器主题变量（保持旧 UI 的配色与圆角） */
+/* 基础语义变量（可被 root.css 中的变量覆盖或补充） */
 :root{
   --background: 0 0% 100%;
   --foreground: 222.2 84% 4.9%;
@@ -15,27 +16,23 @@
   --ring: 222.2 84% 4.9%;
 }
 
-/* 单一 Layer 宿主 + 背景模糊层（修复 filter/backdrop stacking） */
+/* 单一 Layer 宿主（登录页确保不留残层以免遮挡点击） */
 #layer-root[data-layer-host="true"]{
   position: fixed;
   inset: 0;
-  pointer-events: none; /* 默认不拦截点击，只有子层可点 */
+  pointer-events: none;
   z-index: 9999;
 }
 #layer-root .lm-backdrop{
-  position: absolute;
-  inset: 0;
+  position: absolute; inset: 0;
   background: rgba(0,0,0,.28);
   -webkit-backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
   backdrop-filter: blur(var(--layer-blur, 8px)) saturate(120%);
-  opacity: 0;
-  transition: opacity .15s ease;
+  opacity: 0; transition: opacity .15s ease;
   pointer-events: auto;
 }
 #layer-root .lm-backdrop.show{ opacity: 1; }
 #layer-root > * { pointer-events: auto; }
 
 html[data-layer-locked="true"],
-body[data-layer-locked="true"]{
-  overflow: hidden;
-}
+body[data-layer-locked="true"]{ overflow: hidden; }
