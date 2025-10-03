@@ -1,6 +1,7 @@
 # modules/logistics_custom/config/tabs.register.yaml
-tabs:
-  /logistics/custom:
-    - key: list
-      text: 列表
-      href: /logistics/custom/list
+"/logistics/custom":
+  - key: list
+    text: 列表
+    href: /logistics/custom/list
+    order: 100
+    default: true
