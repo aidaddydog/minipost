@@ -14,18 +14,18 @@ function NotFound() {
 type AnyObj = Record<string, any>;
 type TabLike = { href?: string; template?: string; title?: string };
 
-/** ---------- 动态模块加载（由 Vite 负责打包） ---------- */
+// 动态模块映射（由 Vite 处理打包）
 const modulesMap: Record<string, () => Promise<{ default: React.ComponentType<any> }>> =
   import.meta.glob("/modules/**/frontend/react/pages/**/*.tsx");
 
-/** 旧模板路径 → React 页面路径 */
+// 模板路径 → React 页面路径
 function htmlTemplateToReactModulePath(template: string): string | null {
   const m = template.match(/^modules\/(.+?)\/frontend\/templates\/(.+?)\.html$/);
   if (!m) return null;
   return `modules/${m[1]}/frontend/react/pages/${m[2]}.tsx`;
 }
 
-/** 根据相对路径在 modulesMap 里拿到 loader */
+// 根据相对路径在 modulesMap 里拿到 loader
 function pickModuleLoader(reactRelativePath: string):
   (() => Promise<{ default: React.ComponentType<any> }>) | null {
   for (const k in modulesMap) {
@@ -34,7 +34,7 @@ function pickModuleLoader(reactRelativePath: string):
   return null;
 }
 
-/** 拉取并缓存导航 JSON（只面向新 Schema：menu 对象 + tabs 对象） */
+// 拉取并缓存导航 JSON（新 Schema：menu 对象 + tabs 对象）
 async function fetchNav(): Promise<AnyObj> {
   const cached = (window as any).__navjson;
   if (cached) return cached;
@@ -55,7 +55,7 @@ function flattenTabsFromNewSchema(nav: AnyObj): TabLike[] {
     Object.keys(tabs).forEach((base) => {
       const arr = tabs[base];
       if (Array.isArray(arr)) {
-        arr.forEach((t) => out.push({ href: t.href || t.path, template: t.template, title: t.title }));
+        arr.forEach((t: any) => out.push({ href: t.href || t.path, template: t.template, title: t.title || t.text }));
       }
     });
   }
@@ -63,7 +63,7 @@ function flattenTabsFromNewSchema(nav: AnyObj): TabLike[] {
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
-/** 首页默认跳转：优先 tabs 的第一个“有模板的 tab”；其次 menu 的第一个 L2 */
+// 首页默认跳转：优先 tabs 的第一个“有模板的 tab”；其次 menu 的第一个 L2
 function guessHomePath(nav: AnyObj): string {
   const tabs = nav.tabs || {};
   for (const base of Object.keys(tabs)) {
@@ -71,7 +71,6 @@ function guessHomePath(nav: AnyObj): string {
     const firstWithTpl = arr.find((t: any) => !!t.template) || arr[0];
     if (firstWithTpl?.href) return firstWithTpl.href;
   }
-  // 兜底：menu 的第一个 L1 → 第一个 L2
   const menuObj = nav.menu || {};
   const l1Titles = Object.keys(menuObj);
   if (l1Titles.length) {
@@ -82,11 +81,11 @@ function guessHomePath(nav: AnyObj): string {
   return "/";
 }
 
-/** ---------- 构造完整路由 ---------- */
+// 构造完整路由
 function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
   const topLevel: RouteObject[] = [];
 
-  // 1) 登录页：始终独立于外壳
+  // 登录页：独立于外壳
   const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
   const loginLoader = pickModuleLoader(loginRel);
   if (loginLoader) {
@@ -101,7 +100,7 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
     });
   }
 
-  // 2) 外壳 + 业务模块（由 nav.tabs 推导）
+  // 外壳 + 业务模块（由 nav.tabs 推导）
   const children: RouteObject[] = [];
   const tabs = flattenTabsFromNewSchema(nav);
   tabs.forEach((tab) => {
@@ -131,11 +130,9 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
   return topLevel;
 }
 
-/** skeleton：立刻挂载“外壳 + 登录”占位，等 nav 到来再热替换 */
-function buildSkeletonRouter(): any {
+// skeleton：外壳 + 登录占位
+function buildSkeletonRouter(fallback: React.ReactNode = <div className="p-4 text-sm text-slate-600">加载导航中…</div>): any {
   const routes: RouteObject[] = [];
-
-  // 登录占位（避免跳 /login 时露白）
   const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
   const loginLoader = pickModuleLoader(loginRel);
   if (loginLoader) {
@@ -149,20 +146,18 @@ function buildSkeletonRouter(): any {
       ),
     });
   }
-
-  // 外壳 + 首页占位
   routes.push({
     path: "/",
     element: <ShellLayout />,
-    children: [{ index: true, element: <div className="p-4 text-sm text-slate-600">加载导航中…</div> }],
+    children: [{ index: true, element: fallback }],
   });
-
   routes.push({ path: "*", element: <NotFound /> });
   return createBrowserRouter(routes);
 }
 
 export function YamlRouter() {
   const [router, setRouter] = React.useState<any>(() => buildSkeletonRouter());
+  const [err, setErr] = React.useState<string | null>(null);
 
   React.useEffect(() => {
     (async () => {
@@ -171,8 +166,10 @@ export function YamlRouter() {
         const routes = buildRoutesFromNav(nav);
         (window as any).__routes = routes;
         setRouter(createBrowserRouter(routes));
-      } catch (e) {
+      } catch (e: any) {
         console.error("[YamlRouter] init failed:", e);
+        setErr(e?.message || String(e));
+        setRouter(buildSkeletonRouter(<div className="p-4 text-sm text-red-600">加载导航失败：{String(e)}</div>));
       }
     })();
   }, []);

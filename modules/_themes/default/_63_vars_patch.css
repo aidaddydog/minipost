@@ -3,10 +3,9 @@
   --anim-speed: .22s;
   --anim-ease: cubic-bezier(.22,.61,.36,1);
   --pill-minw: 56px;
-  --tab-ink-pad-x: 10px; /* 文字左右内边距，便于 Ink 不贴边 */
-  --tab-ink-ml: 0px;     /* Ink 整体左移修正，如字体度量导致偏移可微调 */
+  --tab-ink-pad-x: 10px;
+  --tab-ink-ml: 0px;
 
-  /* 导航主题变量（若主题已有则复用已有定义） */
   --nav-l1-height: 48px;
   --nav-l2-height: 44px;
   --nav-l3-height: 40px;

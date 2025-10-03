@@ -16,15 +16,13 @@ async function ensureNav(): Promise<AnyObj> {
   return json;
 }
 
-/** 从 /api/nav（新 Schema）派生 L1/L2/L3 结构
- * 仅面向新框架：nav.menu 为对象，nav.tabs 为对象；不再依赖旧 items/children 结构。
- */
+/** 从 /api/nav（新 Schema）派生 L1/L2/L3 结构 */
 function deriveNavModel(nav: AnyObj) {
   const l1: Array<any> = [];
   const l2ByL1: Record<string, any[]> = {};
   const tabsDict: Record<string, any[]> = {};
 
-  // 1) L3 tabs：直接抄给 tabsDict（保持字段名统一：href/title/text/template）
+  // tabs → tabsDict
   const fromTabs = (nav && typeof nav === "object" ? (nav as any).tabs : null) || {};
   if (fromTabs && typeof fromTabs === "object") {
     Object.keys(fromTabs).forEach((base) => {
@@ -40,23 +38,18 @@ function deriveNavModel(nav: AnyObj) {
     });
   }
 
-  // 2) L1/L2：从 nav.menu（对象）构造
+  // menu（对象）→ l1 / l2ByL1
   const menuObj = (nav && typeof nav === "object" ? (nav as any).menu : null) || null;
-
-  // 辅助：根据 L2 列表推导 L1 基础路径（/logistics/channel → /logistics）
   const l1PathFromL2List = (l2List: any[]): string => {
     const firstHref = ((l2List?.[0]?.href || l2List?.[0]?.path || "") as string).trim();
     const segs = firstHref.replace(/^\/+|\/+$/g, "").split("/").filter(Boolean);
     return segs.length ? "/" + segs[0] : "/";
   };
-
   if (menuObj && typeof menuObj === "object" && !Array.isArray(menuObj)) {
     Object.keys(menuObj).forEach((l1Title) => {
       const l2List = (menuObj as any)[l1Title] || [];
       const baseHref = l1PathFromL2List(l2List);
-      // L1
       l1.push({ href: baseHref, title: l1Title, text: l1Title });
-      // L2
       l2ByL1[baseHref] = Array.isArray(l2List)
         ? l2List.map((c: any) => ({
             ...c,
@@ -72,12 +65,9 @@ function deriveNavModel(nav: AnyObj) {
 }
 
 export function ShellHeaderSkeleton() {
-  return (
-    <div className="border-b" style={{ height: "var(--nav-l1-height)" }} />
-  );
+  return <div className="border-b" style={{ height: "var(--nav-l1-height)" }} />;
 }
 
-/** 找到与 path 最匹配的 L1 基础路径（最长前缀匹配） */
 function resolveActiveL1(pathname: string, l1: Array<{href: string}>) {
   const cand = l1
     .filter((it) => pathname === it.href || pathname.startsWith((it.href || "/") + "/"))
@@ -85,7 +75,6 @@ function resolveActiveL1(pathname: string, l1: Array<{href: string}>) {
   return cand[0] || l1[0] || null;
 }
 
-/** 依据 L1/L2/tabs 推导“首个可渲染页面”，用于点击锁定后导航 */
 function firstRenderableFromL1(l1Href: string, l2ByL1: Record<string, any[]>, tabsDict: Record<string, any[]>) {
   const l2 = l2ByL1[l1Href] || [];
   if (l2.length) {
@@ -110,12 +99,10 @@ export default function ShellLayout() {
   const navigate = useNavigate();
   const [model, setModel] = React.useState<ReturnType<typeof deriveNavModel> | null>(null);
 
-  // 交互三态
   const [lockedPath, setLockedPath] = React.useState<string | null>(null);
   const [hoverPath, setHoverPath] = React.useState<string | null>(null);
-  const visualPath = hoverPath || lockedPath || pathname; // 可视优先
+  const visualPath = hoverPath || lockedPath || pathname;
 
-  // 登录页不渲染外壳
   if (pathname === "/login") {
     return <Outlet />;
   }
@@ -125,7 +112,6 @@ export default function ShellLayout() {
       const navjson = await ensureNav();
       const m = deriveNavModel(navjson);
       setModel(m);
-      // 初始锁定：以当前路由归属的 L1 为基准
       const l1Active = resolveActiveL1(pathname, m.l1);
       const first = l1Active ? firstRenderableFromL1(l1Active.href, m.l2ByL1, m.tabsDict) : pathname;
       setLockedPath(first);
@@ -133,7 +119,6 @@ export default function ShellLayout() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // 路由变化时，若用户没有 hover，更新锁定到当前归属页
   React.useEffect(() => {
     if (!model) return;
     if (hoverPath) return;
@@ -142,7 +127,6 @@ export default function ShellLayout() {
     setLockedPath(first);
   }, [pathname, hoverPath, model]);
 
-  // hover 退出的封装（加入宽限期）
   const clearHover = React.useCallback((delay = 80) => {
     if (delay <= 0) setHoverPath(null);
     else setTimeout(() => setHoverPath(null), delay);
@@ -157,7 +141,6 @@ export default function ShellLayout() {
     );
   }
 
-  // 以“可视路径”推导 L2 与 tabs（实现 hover 预览时 UI 跟随，但不改路由）
   const l1Active = resolveActiveL1(visualPath, model.l1) || model.l1[0];
   const l2 = model.l2ByL1[l1Active?.href || ""] || [];
   const tabs =
@@ -166,7 +149,6 @@ export default function ShellLayout() {
     model.tabsDict[l1Active?.href || ""] ||
     [];
 
-  // 点击 L1/L2/tab 的统一导航：锁定并跳转
   const onPickL1 = (href: string) => {
     const dest = firstRenderableFromL1(href, model.l2ByL1, model.tabsDict);
     setLockedPath(dest);
@@ -198,7 +180,6 @@ export default function ShellLayout() {
         onPickL1={onPickL1}
       />
 
-      {/* L2 二级 */}
       {l2.length > 0 && (
         <SubNav
           items={l2}
@@ -210,7 +191,6 @@ export default function ShellLayout() {
         />
       )}
 
-      {/* L3 页签 */}
       {tabs.length > 0 && (
         <PageTabs
           tabs={tabs}
@@ -220,7 +200,6 @@ export default function ShellLayout() {
         />
       )}
 
-      {/* 主内容 */}
       <div className="px-6 py-4">
         <Outlet />
       </div>

@@ -1,36 +1,27 @@
-minipost v93 — 新框架清理补丁（移除 items/children 兼容 + 修复导航聚合 + 构建错误）
-=====================================================================
+minipost v94 — 导航卡死“加载导航中…” 热修复补丁
+================================================
 
-目标：
-1) 前端只消费新 Schema（nav.menu 为对象，nav.tabs 为对象），彻底不再读取 items/children。
-2) 修复 ShellLayout.tsx 构建错误（Unexpected "}"}）并保证胶囊导航/Ink 动效正常。
-3) （可选）后端 /api/nav 仅输出 menu/tabs/stats，不再返回 items（彻底移除旧兼容）。
+问题根因（v94）：
+1) 前端只显示“加载导航中…”是因为 /api/nav 返回异常或结构不合规，前端一直停在 skeleton。
+2) v1 nav 接口依赖了不存在的 load_nav()，导致 500。前端 fetch 失败但没有跳转，故停留在 skeleton。
 
-覆盖内容：
-- modules/_themes/default/_63_vars_patch.css
-- modules/navauth_shell/frontend/react/styles/_nav_effects.css
-- modules/navauth_shell/frontend/react/styles/index.css
-- modules/navauth_shell/frontend/react/app/ShellLayout.tsx
-- modules/navauth_shell/frontend/react/app/YamlRouter.tsx
-- modules/navauth_shell/frontend/react/app/components/TopNav.tsx
-- modules/navauth_shell/frontend/react/app/components/SubNav.tsx
-- modules/navauth_shell/frontend/react/app/components/PageTabs.tsx
-- （可选覆盖）app/api/v1/nav.py  —— 去掉 items/children 兼容输出
+修复内容：
+- app/api/v1/nav.py：不再使用 load_nav()，改为使用 app.common.utils.get_nav_cache/refresh_nav_cache，
+  仅输出新框架 {menu, tabs, stats, ts}。彻底移除 items/children 兼容。
+- 前端：YamlRouter/ShellLayout/TopNav/SubNav/PageTabs 全量覆盖，确保仅消费新 Schema；
+  并在 /api/nav 拉取失败时显示明确错误提示（而不是一直“加载导航中…”）。
+- 样式：确保 index.css 顶部引入 root.css/_63_vars_patch.css/_nav_effects.css。
 
-应用步骤（服务器上）：
-  # 1) 上传本 zip 到服务器（假设放在 /root/）
-  cd /opt/minipost
-  unzip -o /root/minipost_newframework_cleanup_v93.zip -d /opt/minipost
+应用步骤：
+1) 上传本补丁到服务器（假设放在 /root/）
+   cd /opt/minipost
+   unzip -o /root/minipost_nav_hotfix_v94.zip -d /opt/minipost
 
-  # 2) 仅重建 web 并重启服务（不动数据库）
-  docker compose -f deploy/docker-compose.yml build web
-  systemctl restart minipost.service
+2) 重建 Web 并重启
+   docker compose -f deploy/docker-compose.yml build web
+   systemctl restart minipost.service
 
-  # 3) 刷新聚合（可选）
-  bash scripts/reload_nav.sh
+3) 验证
+   curl -s http://127.0.0.1:8000/api/nav | jq .   # 仅有 menu/tabs/stats/ts，无 items
+   访问系统，登录后应看到完整胶囊导航与页签 Ink 动效。
 
-  # 4) 验证
-  curl -s http://127.0.0.1:8000/api/nav | head -n 50
-  docker compose -f deploy/docker-compose.yml logs web --tail=200
-
-注意：如果你暂时不想改后端，只覆盖前端文件也能正常工作。

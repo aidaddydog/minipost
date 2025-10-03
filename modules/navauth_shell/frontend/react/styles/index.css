@@ -1,4 +1,4 @@
-/* 关键：主题与导航动效变量/样式必须最先引入 */
+/* 主题与导航动效必须首先引入 */
 @import "../../../../_themes/default/root.css";
 @import "../../../../_themes/default/_63_vars_patch.css";
 @import "./_nav_effects.css";
@@ -7,4 +7,4 @@
 @tailwind components;
 @tailwind utilities;
 
-/* 其它全局覆盖可写在下方（保持简短） */
+/* 其它全局覆盖写在下方 */
