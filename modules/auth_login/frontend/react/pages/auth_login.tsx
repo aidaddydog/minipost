@@ -1,17 +1,11 @@
 import React from "react";
 
-/**
- * 纯净登录页：
- * - 左 75% 居中表单（无卡片），右 25% 纯黑背景
- * - 使用 POST x-www-form-urlencoded 调 /api/login
- * - 成功后跳转首页；失败展示后端错误
- */
-
+/** 统一的登录请求（POST 表单，写入 HttpOnly Cookie） */
 async function doLogin(username: string, password: string): Promise<Response> {
   const body = new URLSearchParams({ username, password });
   return fetch("/api/login", {
     method: "POST",
-    credentials: "include", // 写入 HttpOnly Cookie
+    credentials: "include",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       "Accept": "application/json, text/plain;q=0.8, */*;q=0.5",
@@ -26,8 +20,18 @@ export default function AuthLoginPage() {
   const [loading, setLoading] = React.useState(false);
   const [error, setError] = React.useState<string | null>(null);
 
-  async function onSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  // 作用域标记：仅在登录页时生效（供 root.css 的 shadcn 变量覆盖）
+  React.useEffect(() => {
+    const el = document.documentElement; // <html>
+    el.setAttribute("data-page", "login");
+    // 清空任何残留的浮层，防止遮挡点击
+    const layer = document.getElementById("layer-root");
+    if (layer) layer.replaceChildren();
+    return () => el.removeAttribute("data-page");
+  }, []);
+
+  const onSubmit = React.useCallback(async (e: React.FormEvent) => {
+    e.preventDefault(); // 阻止浏览器原生提交（避免跳接口页面）
     if (!username || !password) {
       setError("请输入用户名与密码");
       return;
@@ -45,20 +49,19 @@ export default function AuthLoginPage() {
       window.location.assign("/");
     } catch (err: any) {
       setError(err?.message || "登录失败");
-    } finally {
       setLoading(false);
     }
-  }
+  }, [username, password]);
 
   return (
     <div className="min-h-screen grid grid-cols-[75%_25%]">
-      {/* 左 75%：表单（居中、无卡片） */}
+      {/* 左 75%：表单区（居中、无卡片） */}
       <main className="flex items-center justify-center">
-        <form onSubmit={onSubmit} className="w-[min(92vw,560px)] space-y-6">
+        <form onSubmit={onSubmit} className="w-[min(92vw,560px)] space-y-6" noValidate>
           <div className="text-3xl font-bold">登录</div>
 
           <input
-            className="border rounded-lg px-4 py-3 w-full bg-slate-50 focus:outline-none focus:ring-2 focus:ring-black/30"
+            className="border rounded-lg px-4 py-3 w-full bg-slate-50 focus:outline-none focus:ring-1 focus:ring-black/20 transition-none"
             placeholder="用户名"
             value={username}
             onChange={(e) => setUsername(e.target.value)}
@@ -68,7 +71,7 @@ export default function AuthLoginPage() {
           />
           <input
             type="password"
-            className="border rounded-lg px-4 py-3 w-full bg-slate-50 focus:outline-none focus:ring-2 focus:ring-black/30"
+            className="border rounded-lg px-4 py-3 w-full bg-slate-50 focus:outline-none focus:ring-1 focus:ring-black/20 transition-none"
             placeholder="密码"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
@@ -85,14 +88,15 @@ export default function AuthLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="w-full rounded-lg bg-black text-white px-4 py-3 active:scale-[0.99] transition-transform"
+            aria-busy={loading}
+            className="w-full rounded-lg bg-black text-white px-4 py-3 active:scale-[0.99] transition-transform disabled:opacity-70 disabled:pointer-events-none"
           >
             {loading ? "登录中…" : "登录"}
           </button>
         </form>
       </main>
 
-      {/* 右 25%：纯黑背景占位 */}
+      {/* 右 25%：纯黑占位背景（后续可替换为图片） */}
       <aside aria-hidden className="h-full" style={{ background: "#000" }} />
     </div>
   );
