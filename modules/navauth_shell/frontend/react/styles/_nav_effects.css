@@ -1,0 +1,19 @@
+/* === 导航动效（对齐 63 版） === */
+.nav-rail .pill{
+  height: calc(var(--nav-l1-height) - 14px);
+  min-width: var(--pill-minw);
+  border-radius: var(--nav-l1-radius);
+  background: var(--nav-l1-item-active-bg);
+  box-shadow: 0 8px 20px rgba(0,0,0,.06);
+  transition: transform var(--anim-speed) var(--anim-ease), width var(--anim-speed) var(--anim-ease);
+  will-change: transform, width;
+}
+
+.tabs .tab-ink{
+  height: 2px;
+  left: 0;
+  background: var(--nav-l3-underline);
+  transition: transform var(--anim-speed) var(--anim-ease), width var(--anim-speed) var(--anim-ease), opacity .12s ease;
+  will-change: transform, width, opacity;
+  opacity: 0;
+}

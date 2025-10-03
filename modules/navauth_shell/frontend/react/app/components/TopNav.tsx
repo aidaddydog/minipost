@@ -20,57 +20,93 @@ function firstRenderableTab(l1Href: string, l2ByL1: L2Map, tabsDict: TabsDict): 
 }
 
 export default function TopNav({
-  items, activePath, l2ByL1, tabsDict,
+  items, activePath, visualPath, l2ByL1, tabsDict,
+  onHoverL1, onLeaveHeader, onPickL1,
 }: {
   items: Item[];
-  activePath: string;
+  activePath: string;           // 实际路由（用于高亮保底）
+  visualPath: string;           // 可视路径（hover 优先）
   l2ByL1: L2Map;
   tabsDict: TabsDict;
+  onHoverL1: (href: string | null) => void;
+  onLeaveHeader: () => void;
+  onPickL1: (href: string) => void;
 }) {
-  return (
-    <header
-      className="sticky top-0 z-40 w-full border-b bg-[var(--nav-l1-bg)]"
-      style={{ boxShadow: "var(--nav-l1-shadow)" }}
-    >
-      <div className="mx-auto w-full max-w-[1200px] flex items-center justify-between h-[var(--nav-l1-height)] px-4">
-        <a href="/" className="font-semibold text-[15px]">minipost</a>
+  const railRef = React.useRef<HTMLDivElement | null>(null);
+  const pillRef = React.useRef<HTMLSpanElement | null>(null);
+  const [pill, setPill] = React.useState<{left: number; width: number} | null>(null);
 
-        <nav
-          className="flex items-center"
-          style={{
-            gap: "var(--nav-l1-item-gap)",
-            border: `1px solid var(--nav-l1-border)`,
-            borderRadius: "var(--nav-l1-radius)",
-            padding: "4px",
-            background: "var(--nav-l1-bg)",
-          }}
-        >
+  // 当前“可视 L1”
+  const visualL1 = React.useMemo(() => {
+    const list = items
+      .filter((it) => visualPath === it.href || visualPath.startsWith((it.href || "/") + "/"))
+      .sort((a, b) => (b.href?.length || 0) - (a.href?.length || 0));
+    return list[0] || items[0];
+  }, [items, visualPath]);
+
+  // 计算 pill 位置（跟随 visualL1）
+  React.useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const link = rail.querySelector<HTMLAnchorElement>(`a[data-href="${visualL1?.href}"]`);
+    if (!link) return;
+    const railRect = rail.getBoundingClientRect();
+    const linkRect = link.getBoundingClientRect();
+    const left = linkRect.left - railRect.left + rail.scrollLeft - (parseFloat(getComputedStyle(rail).paddingLeft) || 0);
+    const width = Math.max(linkRect.width, parseFloat(getComputedStyle(document.documentElement).getPropertyValue("--pill-minw")) || 32);
+    setPill({ left, width });
+  }, [visualL1, items]);
+
+  // 滚动/缩放时重新定位
+  React.useEffect(() => {
+    const rail = railRef.current;
+    if (!rail) return;
+    const onScroll = () => {
+      // 触发重算
+      setPill((p) => (p ? { ...p } : p));
+    };
+    const onResize = () => setPill((p) => (p ? { ...p } : p));
+    rail.addEventListener("scroll", onScroll, { passive: true });
+    window.addEventListener("resize", onResize, { passive: true });
+    return () => {
+      rail.removeEventListener("scroll", onScroll);
+      window.removeEventListener("resize", onResize);
+    };
+  }, []);
+
+  return (
+    <header className="w-full border-b bg-[var(--nav-l1-bg)]" style={{ borderColor: "var(--nav-l1-sep)" }}
+            onMouseLeave={onLeaveHeader}>
+      <div className="mx-auto w-full max-w-[1200px] h-[var(--nav-l1-height)] flex items-center px-4">
+        <nav ref={railRef} className="nav-rail relative w-full overflow-x-auto whitespace-nowrap pr-2">
+          {/* pill */}
+          <span ref={pillRef}
+                className="pill absolute top-1/2 -translate-y-1/2 pointer-events-none"
+                style={pill ? {
+                  width: `${pill.width}px`,
+                  transform: `translateX(${pill.left}px) translateY(-50%)`,
+                } : { display: "none" }} />
+
+          {/* 项 */}
           {items.map((it) => {
             const label = it.title || it.text || it.href;
-            const target = firstRenderableTab(it.href, l2ByL1, tabsDict);
-            const active =
-              activePath === it.href ||
-              activePath.startsWith(it.href + "/") ||
-              activePath === target ||
-              activePath.startsWith(target + "/");
+            const href = it.href;
+            const active = visualPath === href || visualPath.startsWith((href || "/") + "/");
             return (
               <Link
-                key={it.href}
-                to={target}
-                className="text-sm"
+                key={href}
+                data-href={href}
+                to={firstRenderableTab(href, l2ByL1, tabsDict)}
+                className="inline-block text-[13px] select-none"
                 style={{
                   padding: `var(--nav-l1-item-py) var(--nav-l1-item-px)`,
                   borderRadius: "var(--nav-l1-radius)",
                   background: active ? "var(--nav-l1-item-active-bg)" : "transparent",
                   color: active ? "var(--nav-l1-item-active-fg)" : "inherit",
                 }}
-                onMouseEnter={(e) => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background =
-                    "var(--nav-l1-item-hover-bg)";
-                }}
-                onMouseLeave={(e) => {
-                  if (!active) (e.currentTarget as HTMLElement).style.background = "transparent";
-                }}
+                onMouseEnter={() => onHoverL1(href)}
+                onClick={(e) => { e.preventDefault(); onPickL1(href); }}
+                onFocus={() => onHoverL1(href)}
               >
                 {label}
               </Link>
