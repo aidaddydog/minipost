@@ -1,57 +1,35 @@
-import React, { ReactNode } from "react";
+import React, { createContext, useContext, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 
-type Entry = { id: number; node: ReactNode };
-class LayerManagerImpl {
-  private host: HTMLElement | null = null;
-  private entries: Entry[] = [];
-  private idSeq = 1;
+type Layer = "modal" | "overlay" | "toast";
+type LayerCtx = { ensure: (id: Layer) => HTMLElement };
 
-  private ensureHost() {
-    if (!this.host) {
-      const el = document.createElement("div");
-      el.id = "layer-host";
-      Object.assign(el.style, { position: "fixed", inset: "0", pointerEvents: "none", zIndex: "2147483647" });
-      document.body.appendChild(el);
-      this.host = el;
-    }
-  }
+const Ctx = createContext<LayerCtx | null>(null);
 
-  mount(node: ReactNode) {
-    this.ensureHost();
-    const id = this.idSeq++;
-    this.entries.push({ id, node });
-    this.rerender();
-    return id;
-  }
+export const LayerManager: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  const [nodes] = useState(() => {
+    const mk = (id: string) => {
+      const el = document.getElementById(id) || Object.assign(document.createElement("div"), { id });
+      if (!el.isConnected) document.body.appendChild(el);
+      return el;
+    };
+    return { m: mk("layer-modal"), o: mk("layer-overlay"), t: mk("layer-toast") };
+  });
 
-  update(id: number, node: ReactNode) {
-    const it = this.entries.find(e => e.id === id);
-    if (it) { it.node = node; this.rerender(); }
-  }
+  const ctx = useMemo<LayerCtx>(
+    () => ({ ensure: (id) => (id === "modal" ? nodes.m : id === "overlay" ? nodes.o : nodes.t) }),
+    [nodes]
+  );
+  return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
+};
 
-  unmount(id: number) {
-    this.entries = this.entries.filter(e => e.id !== id);
-    this.rerender();
-  }
-
-  private rerender() {
-    if (!this.host) return;
-    const content = (
-      <>
-        {this.entries.map(e => (
-          <div key={e.id} style={{ pointerEvents: "auto" }}>{e.node}</div>
-        ))}
-      </>
-    );
-    // Render once per microtask (cheap batching)
-    Promise.resolve().then(() => {
-      if (!this.host) return;
-      const vnode = createPortal(content, this.host!);
-      // store on window for devtools (optional)
-      (window as any).__LAYER_VNODE__ = vnode;
-    });
-  }
+export function useLayer() {
+  const ctx = useContext(Ctx);
+  if (!ctx) throw new Error("useLayer must be used within <LayerManager>");
+  return ctx;
 }
-const LayerManager = new LayerManagerImpl();
-export default LayerManager;
+
+export const Portal: React.FC<{ to: Layer; children: React.ReactNode }> = ({ to, children }) => {
+  const { ensure } = useLayer();
+  return createPortal(children, ensure(to));
+};
