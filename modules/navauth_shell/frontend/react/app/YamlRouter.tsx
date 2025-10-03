@@ -1,5 +1,10 @@
 import React from "react";
-import { createBrowserRouter, RouterProvider, RouteObject } from "react-router-dom";
+import {
+  createBrowserRouter,
+  RouterProvider,
+  RouteObject,
+  Navigate,
+} from "react-router-dom";
 import { ShellLayout } from "./ShellLayout";
 
 // 轻量 404
@@ -10,11 +15,26 @@ function NotFound() {
 type AnyObj = Record<string, any>;
 type TabLike = { href?: string; template?: string; title?: string };
 
+/** 拉取 /api/nav（带 Cookie）。401 时直接回登录页 */
 async function fetchNav(): Promise<AnyObj> {
-  const res = await fetch("/api/nav", { headers: { Accept: "application/json" } });
+  // 允许使用缓存，避免重复请求
+  const cached = (window as any).__navjson;
+  if (cached) return cached;
+
+  const res = await fetch("/api/nav", {
+    headers: { Accept: "application/json" },
+    credentials: "include", // ← 关键：携带登录 Cookie
+  });
+
+  if (res.status === 401) {
+    // 未登录或会话失效
+    window.location.assign("/login");
+    throw new Error("Unauthorized");
+  }
   if (!res.ok) throw new Error(await res.text());
+
   const json = await res.json();
-  (window as any).__navjson = json; // 共享给 ShellLayout 复用，避免重复请求
+  (window as any).__navjson = json;
   return json;
 }
 
@@ -37,6 +57,9 @@ function flattenTabs(root: AnyObj): TabLike[] {
   return out.filter((x) => x.href && !seen.has(x.href!) && seen.add(x.href!));
 }
 
+// 旧模板 → 模块内 React 页面（与旧 YAML 完全兼容）
+//   modules/<domain>/<feature>/frontend/templates/<page>.html
+// → modules/<domain>/<feature>/frontend/react/pages/<page>.tsx
 function htmlTemplateToReactModulePath(template: string): string | null {
   const m = template.match(/^modules\/(.+?)\/frontend\/templates\/(.+?)\.html$/);
   if (!m) return null;
@@ -48,15 +71,39 @@ const gRel = import.meta.glob("../../../../modules/**/frontend/react/pages/**/*.
 const gAbs = import.meta.glob("/modules/**/frontend/react/pages/**/*.{tsx,jsx}");
 const modulesMap: Record<string, any> = { ...gRel, ...gAbs };
 
+// 宽容匹配（不同 glob 生成的 key 前缀不同）
 function pickModuleLoader(reactRelativePath: string): any | null {
   for (const k in modulesMap) if (k.endsWith(reactRelativePath)) return modulesMap[k];
   return null;
 }
 
+/** 计算“首页默认跳转路径”：
+ *  优先：第一个 L1 的第一个 L2；备选：第一个 L1；最后：第一个可渲染 tab/href
+ */
+function guessHomePath(nav: AnyObj): string {
+  const menus = (nav.menus || nav.menu || nav.items || []) as any[];
+  if (Array.isArray(menus) && menus.length) {
+    const l1 = menus.map((m: any) => ({ ...m, href: m.href || m.path || "/" }));
+    const firstL1 = l1[0];
+    const l2 = (firstL1?.children || firstL1?.items || []) as any[];
+    if (Array.isArray(l2) && l2.length) {
+      const firstL2 = { ...l2[0], href: l2[0].href || l2[0].path || firstL1.href || "/" };
+      return firstL2.href;
+    }
+    return firstL1.href || "/";
+  }
+  // 再退回到 tabs 字典
+  const tabs = nav.tabs || {};
+  const keys = Object.keys(tabs || {});
+  if (keys.length && Array.isArray(tabs[keys[0]]) && tabs[keys[0]].length) {
+    return tabs[keys[0]][0].href || tabs[keys[0]][0].path || "/";
+  }
+  return "/";
+}
+
 function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
   const children: RouteObject[] = [];
   const tabs = flattenTabs(nav);
-  const found = new Set<string>();
 
   tabs.forEach((tab) => {
     const href = tab.href!;
@@ -73,9 +120,12 @@ function buildRoutesFromNav(nav: AnyObj): RouteObject[] {
           </React.Suspense>
         ),
       });
-      found.add(href);
     }
   });
+
+  // 根路径的默认跳转（确保登录后不会空白）
+  const home = guessHomePath(nav);
+  children.push({ index: true, element: <Navigate to={home} replace /> });
 
   // 兜底 404
   children.push({ path: "*", element: <NotFound /> });
@@ -94,7 +144,11 @@ function buildLoginOnlyRouter(): any {
   const loginRel = "modules/auth_login/frontend/react/pages/auth_login.tsx";
   const loader = pickModuleLoader(loginRel);
   const Login = loader ? React.lazy(loader as any) : () => <div>Login</div>;
-  const routes: RouteObject[] = [{ path: "/login", element: <React.Suspense fallback={<div/>}><Login /></React.Suspense> }];
+  const routes: RouteObject[] = [
+    { path: "/login", element: <React.Suspense fallback={<div />}><Login /></React.Suspense> },
+    // 其他路径一律重定向到 /login（避免空白）
+    { path: "*", element: <Navigate to="/login" replace /> },
+  ];
   return createBrowserRouter(routes);
 }
 
@@ -103,16 +157,21 @@ export function YamlRouter() {
 
   React.useEffect(() => {
     const path = window.location.pathname;
-    // 在 /login 时用轻量路由，避免首屏加载 /api/nav 造成卡顿
+    // 在 /login 用轻量路由，避免首屏加载 /api/nav 造成卡顿
     if (path === "/login") {
       setRouter(buildLoginOnlyRouter());
       return;
     }
     (async () => {
-      const nav = await fetchNav();
-      const routes = buildRoutesFromNav(nav);
-      (window as any).__routes = routes; // 调试辅助
-      setRouter(createBrowserRouter(routes));
+      try {
+        const nav = await fetchNav();
+        const routes = buildRoutesFromNav(nav);
+        (window as any).__routes = routes; // 调试辅助
+        setRouter(createBrowserRouter(routes));
+      } catch (e) {
+        // 如果拉取失败（例如 401 已跳转），这里保持空即可
+        console.error("[YamlRouter] init failed:", e);
+      }
     })();
   }, []);
 
