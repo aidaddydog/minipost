@@ -1,0 +1,12 @@
+/* === _63_vars_patch.css (design-accurate parameters) === */
+:root{
+  --logo-w:30px; --logo-h:30px; --logo-radius:12px; --logo-bg:#e7e7e9; --logo-ml:15px;
+  --avatar-size:30px; --avatar-radius:50%; --avatar-bg:#ffffff; --avatar-border-width:1px; --avatar-border-color:#e7e7e9; --avatar-mr:15px;
+  --l1-color:#151515; --l1-hover:#0f172a; --l1-active:#111827;
+  --pill-border-width:0px; --pill-border-color:rgba(0,0,0,.1); --pill-shadow:0 0 0 rgba(0,0,0,0);
+  --l2-font-size:9px; --l2-color:#334155; --l2-hover:#ea580c; --l2-item-py:6px; --l2-item-px:4px; --l2-item-radius:8px; --l2-gap:14px; --l2-item-my:5px;
+  --tab-w:100%; --tab-offset-left:calc(var(--logo-w) + var(--gap)); --tab-gap:0px; --tab-font-size:8px; --tab-radius:10px;
+  --tab-inactive-bg:transparent; --tab-active-bg:transparent; --tab-border:transparent;
+  --tab-color:#9f9f9f; --tab-color-active:#111827; --tab-px:0px; --tab-py:3px;
+  --tabcard-radius:25px; --tabcard-bg:#f6f6f6; --tabcard-shadow:0 0 0 rgba(0,0,0,0); --tabcard-p:16px;
+}

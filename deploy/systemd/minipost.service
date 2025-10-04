@@ -1,0 +1,15 @@
+[Unit]
+Description=minipost via Docker Compose
+After=network-online.target docker.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=/opt/minipost
+ExecStart=/usr/bin/docker compose -f /opt/minipost/deploy/docker-compose.yml up -d
+ExecStop=/usr/bin/docker compose -f /opt/minipost/deploy/docker-compose.yml down
+TimeoutStartSec=0
+
+[Install]
+WantedBy=multi-user.target
