@@ -8,17 +8,53 @@ c_grn='\033[0;32m'
 c_ylw='\033[0;33m'
 c_cyn='\033[0;36m'
 c_blu='\033[38;5;39m'      # 芙蒂尼蓝（近似）
-c_org='\033[38;5;214m'     # 橙色（报告）
+c_org='\033[38;5;214m'     # 橙色（保留但不再用于最终报告）
+c_dgrn_i='\033[3;38;5;22m' # 斜体墨绿色
 c_rst='\033[0m'
 
-ok()   { echo -e "${c_grn}[+] $*${c_rst}"; }
+# 日志样式：把“绿色标题”改成芙蒂尼蓝，不加粗
+ok()   { echo -e "${c_blu}[+] $*${c_rst}"; }
 warn() { echo -e "${c_ylw}[!] $*${c_rst}"; }
 err()  { echo -e "${c_red}[-] $*${c_rst}" >&2; }
 die()  { err "$1"; exit 1; }
 
-# ========= 行动/进度 示例（按要求展示）=========
-spin(){ echo -e "${c_cyn}行动状态：⠙ ${*}${c_rst}"; }
-progress_demo(){ echo -e "${c_cyn}安装进度：[⣿⣿⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿] 95%${c_rst}"; }
+# ========= 旋转指示（黄色 ⣿ / 完成 ✓ 绿色）=========
+SPIN_PID=0
+SPIN_FILE=""
+SPIN_MSG=""
+
+spin_begin() {
+  SPIN_MSG="$1"
+  SPIN_FILE="$(mktemp)"
+  : > "${SPIN_FILE}"
+  (
+    local frames=(⣾ ⣿ ⣷ ⣯ ⣟ ⣻ ⣽ ⣾)
+    local i=0
+    tput civis 2>/dev/null || true
+    while [[ -f "${SPIN_FILE}" ]]; do
+      local f="${frames[i % ${#frames[@]}]}"
+      printf "\r\033[0;33m%s\033[0m \033[38;5;39m%s\033[0m" "${f}" "${SPIN_MSG}"
+      i=$((i+1))
+      sleep 0.1
+    done
+    tput cnorm 2>/dev/null || true
+  ) &
+  SPIN_PID=$!
+}
+
+spin_end() {
+  local rc="${1:-0}"
+  [[ -n "${SPIN_FILE}" && -f "${SPIN_FILE}" ]] && rm -f "${SPIN_FILE}"
+  wait "${SPIN_PID}" 2>/dev/null || true
+  if [[ "${rc}" -eq 0 ]]; then
+    printf "\r\033[0;32m✓\033[0m \033[38;5;39m%s\033[0m\n" "${SPIN_MSG}"
+  else
+    printf "\r\033[0;31m✗\033[0m \033[38;5;39m%s\033[0m\n" "${SPIN_MSG}"
+  fi
+  SPIN_PID=0
+  SPIN_FILE=""
+  SPIN_MSG=""
+}
 
 # ========= 分支自动识别（新增） =========
 # 优先顺序：
@@ -70,7 +106,13 @@ box5(){ # box5 "标题" "$content"
 # ========= 0) Preflight =========
 need_root(){ [[ ${EUID:-$(id -u)} -eq 0 ]] || die "请先 sudo -i 或 su - 切换到 root 后重试（EUID 必须 0）"; }
 check_os(){ . /etc/os-release || true; [[ "${ID:-}" = "ubuntu" && "${VERSION_ID:-}" = "24.04" ]] || warn "建议 Ubuntu 24.04 LTS，当前：${PRETTY_NAME:-unknown}（继续尝试）"; }
-ensure_pkgs(){ ok "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"; apt-get update -y >/dev/null; apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true; }
+
+ensure_pkgs(){
+  spin_begin "安装/校验基础软件（git/curl/ufw/chrony/yaml 解析等）"
+  apt-get update -y >/dev/null
+  apt-get install -y ca-certificates curl gnupg lsb-release git ufw chrony python3-yaml >/dev/null 2>&1 || true
+  spin_end 0
+}
 
 check_net_time(){
   ok "系统/网络/时间/端口检查"
@@ -82,7 +124,7 @@ check_net_time(){
 }
 
 ensure_docker(){
-  ok "安装/检查 Docker Engine 与 Compose 插件"
+  spin_begin "安装/检查 Docker Engine 与 Compose 插件"
   if ! command -v docker >/dev/null 2>&1; then
     install -m0755 -d /etc/apt/keyrings
     curl -fsSL https://download.docker.com/linux/ubuntu/gpg | gpg --dearmor -o /etc/apt/keyrings/docker.gpg
@@ -97,6 +139,7 @@ ensure_docker(){
   fi
   docker run --rm hello-world >/dev/null 2>&1 || die "Docker hello-world 运行失败（请检查网络/镜像源/代理）"
   docker compose version >/dev/null 2>&1 || die "缺少 docker compose 插件"
+  spin_end 0
 }
 
 # ========= 端到端复用的辅助 =========
@@ -109,9 +152,9 @@ pre_stop_if_installed(){
 
 choose_mode(){
   echo -e "${c_cyn}请选择部署模式（仅输入数字）：${c_rst}"
-  echo -e "  ${c_grn}1) 全新安装${c_rst}：备份→清理容器/卷/镜像/缓存→重装"
-  echo -e "  ${c_grn}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新结构与镜像"
-  echo -e "  ${c_grn}3) 升级安装${c_rst}：仅同步差异；若有迁移→自动幂等迁移"
+  echo -e "  ${c_blu}1) 全新安装${c_rst}：备份→清理容器/卷/镜像/缓存→重装"
+  echo -e "  ${c_blu}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新结构与镜像"
+  echo -e "  ${c_blu}3) 升级安装${c_rst}：仅同步差异；若有迁移→自动幂等迁移"
   read -rp "输入 [1/2/3]（默认 2）: " MODE || true
   MODE="${MODE:-2}"
   [[ "${MODE}" =~ ^[123]$ ]] || die "非法输入：${MODE}"
@@ -138,6 +181,20 @@ prepare_env(){
   put USE_REAL_NAV true; put UFW_OPEN true; put ENVIRONMENT production
   grep -q '^PG_PASSWORD=' .deploy.env || echo "PG_PASSWORD=$(head -c 32 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-32)" >> .deploy.env
   grep -q '^JWT_SECRET=' .deploy.env  || echo "JWT_SECRET=$(head -c 48 /dev/urandom | base64 | tr -d '\n=/' | cut -c1-48)" >> .deploy.env
+
+  # ===== HTTPS 登录 Cookie Secure 开关（默认 N）=====
+  if ! grep -q '^COOKIE_SECURE=' .deploy.env; then
+    echo -e "${c_cyn}是否开启 HTTPS 登录（Cookie 将设置 Secure，仅 HTTPS 生效）？${c_rst}"
+    read -rp "开启请输入 y，默认 [n]: " _ans || true
+    _ans="$(echo "${_ans:-n}" | tr 'A-Z' 'a-z')"
+    if [[ "${_ans}" == "y" || "${_ans}" == "yes" ]]; then
+      echo "COOKIE_SECURE=on" >> .deploy.env
+      ok "已设置 COOKIE_SECURE=on（仅 HTTPS 登录）"
+    else
+      echo "COOKIE_SECURE=off" >> .deploy.env
+      warn "已设置 COOKIE_SECURE=off（允许 HTTP，建议仅用于临时/测试环境）"
+    fi
+  fi
 }
 
 load_deploy_env(){
@@ -224,8 +281,14 @@ apply_mode(){
 }
 
 build_web(){
-  spin "构建 Web 镜像"; progress_demo
-  if [[ "${MODE}" == "1" ]]; then docker compose -f "${COMPOSE_FILE}" build --pull --no-cache web; else docker compose -f "${COMPOSE_FILE}" build --pull web; fi
+  spin_begin "构建 Web 镜像"
+  if [[ "${MODE}" == "1" ]]; then
+    docker compose -f "${COMPOSE_FILE}" build --pull --no-cache web
+  else
+    docker compose -f "${COMPOSE_FILE}" build --pull web
+  fi
+  local rc=$?
+  spin_end "${rc}"
   local ver
   ver="$(docker compose -f "${COMPOSE_FILE}" run --rm -w /app web python - <<'PY'
 import bcrypt, passlib, fastapi, uvicorn
@@ -236,19 +299,27 @@ PY
 }
 
 start_pg(){
-  spin "启动 PostgreSQL 16"; progress_demo
+  spin_begin "启动 PostgreSQL 16"
   docker compose -f "${COMPOSE_FILE}" up -d postgres
   local DB USER; DB="$(grep '^PG_DB=' .deploy.env | cut -d= -f2- | tr -d '\r')"; USER="$(grep '^PG_USER=' .deploy.env | cut -d= -f2- | tr -d '\r')"
   for _ in {1..60}; do
-    if docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U "${USER}" -d "${DB}" -h localhost >/dev/null 2>&1; then ok "Postgres 就绪"; break; fi; sleep 1
+    if docker compose -f "${COMPOSE_FILE}" exec -T postgres pg_isready -U "${USER}" -d "${DB}" -h localhost >/dev/null 2>&1; then
+      spin_end 0
+      ok "Postgres 就绪"
+      return 0
+    fi
+    sleep 1
   done
+  spin_end 1
+  die "Postgres 就绪检测超时"
 }
 
 migrate_db(){
-  spin "执行 Alembic 迁移"; progress_demo
+  spin_begin "执行 Alembic 迁移"
   local out; set +e
   out="$(docker compose -f "${COMPOSE_FILE}" run --rm -w /app web alembic -c /app/alembic.ini upgrade head 2>&1)"
   local rc=$?; set -e
+  spin_end "${rc}"
   box5 "迁移输出（仅显示末尾 5 行）" "$out"
   [[ $rc -eq 0 ]] || { err "迁移失败"; echo "一行日志命令：${LOG_CMD_COMPOSE}"; exit 1; }
 }
@@ -257,7 +328,6 @@ migrate_db(){
 ADMIN_USER_INPUT=""; ADMIN_PWD_INPUT=""; ADMIN_INIT_DONE=0
 
 init_admin_do(){
-  # 以容器运行 bootstrap 子命令；明文密码按你的要求输入并打印到最终报告（仅当本次初始化）
   docker compose -f "${COMPOSE_FILE}" run --rm -e PYTHONUNBUFFERED=1 web \
     python -m app.bootstrap init-admin --username "${ADMIN_USER_INPUT}" --password "${ADMIN_PWD_INPUT}"
   ADMIN_INIT_DONE=1
@@ -268,7 +338,7 @@ maybe_init_admin_by_mode(){
     1)
       ok "【全新安装】初始化管理员（必填，明文）"
       read -rp "请输入管理员用户名（默认 admin）: " ADMIN_USER_INPUT || true; ADMIN_USER_INPUT="${ADMIN_USER_INPUT:-admin}"
-      read -rsp "请输入管理员密码（明文）: " ADMIN_PWD_INPUT; echo
+      read -rp "请输入管理员密码（明文）: " ADMIN_PWD_INPUT
       init_admin_do
       ;;
     2)
@@ -276,7 +346,7 @@ maybe_init_admin_by_mode(){
       read -rp "是否初始化管理员账号密码？(y/N): " CH || true; CH="${CH:-N}"
       if [[ "${CH}" =~ ^[Yy]$ ]]; then
         read -rp "请输入管理员用户名（默认 admin）: " ADMIN_USER_INPUT || true; ADMIN_USER_INPUT="${ADMIN_USER_INPUT:-admin}"
-        read -rsp "请输入管理员密码（明文）: " ADMIN_PWD_INPUT; echo
+        read -rp "请输入管理员密码（明文）: " ADMIN_PWD_INPUT
         init_admin_do
       else
         ok "本次覆盖安装未重置管理员，沿用原有账号密码"
@@ -289,15 +359,21 @@ maybe_init_admin_by_mode(){
 }
 
 start_web(){
-  spin "启动 Web 服务"; progress_demo
+  spin_begin "启动 Web 服务"
   docker compose -f "${COMPOSE_FILE}" up -d web
   local PORT; PORT="$(grep '^APP_PORT=' .deploy.env | cut -d= -f2- | tr -d '\r')"
   local passed=0
   for _ in {1..60}; do
-    if curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then ok "Web 健康检查通过"; passed=1; break; fi
+    if curl -sf "http://127.0.0.1:${PORT}/healthz" >/dev/null 2>&1; then
+      spin_end 0
+      ok "Web 健康检查通过"
+      passed=1
+      break
+    fi
     sleep 2
   done
   if [[ $passed -ne 1 ]]; then
+    spin_end 1
     err "Web 健康检查超时，自动打印最近 50 行容器日志："
     docker compose -f "${COMPOSE_FILE}" logs web --tail=50 || true
     echo "一行日志命令：${LOG_CMD_COMPOSE}"
@@ -305,7 +381,11 @@ start_web(){
   fi
 }
 
-hot_reload(){ ok "热重载导航 /api/nav（统计模块/菜单/页签）"; bash "${APP_DIR}/scripts/reload_nav.sh" || true; }
+hot_reload(){
+  spin_begin "热重载导航 /api/nav（统计模块/菜单/页签）"
+  bash "${APP_DIR}/scripts/reload_nav.sh" || true
+  spin_end 0
+}
 
 ufw_and_verify(){
   local HOST PORT OPEN; HOST="$(grep '^APP_HOST=' .deploy.env | cut -d= -f2- | tr -d '\r')"
@@ -332,30 +412,34 @@ report(){
   IP="$(hostname -I | awk '{print $1}')"
   PUB="$(curl -sf https://ifconfig.me 2>/dev/null || true)"
 
-  echo -e "${c_org}================== 部署完成（报告） ==================${c_rst}"
-  echo -e "${c_org}访问地址（内网）： http://${IP}:${PORT}/${c_rst}"
-  [[ -n "${PUB}" ]] && echo -e "${c_org}访问地址（公网）： http://${PUB}:${PORT}/${c_rst}"
-  echo -e "${c_org}健康检查：         http://${IP}:${PORT}/healthz${c_rst}"
-  [[ -n "${PUB}" ]] && echo -e "${c_org}健康检查（公网）： http://${PUB}:${PORT}/healthz${c_rst}"
-  echo -e "${c_org}管理登录入口：     http://${IP}:${PORT}/login${c_rst}"
-  [[ -n "${PUB}" ]] && echo -e "${c_org}管理登录入口（公网）：http://${PUB}:${PORT}/login${c_rst}"
+  echo -e "${c_dgrn_i}================== 部署完成（报告） ==================${c_rst}"
+  echo -e "${c_dgrn_i}访问地址（内网）： http://${IP}:${PORT}/${c_rst}"
+  [[ -n "${PUB}" ]] && echo -e "${c_dgrn_i}访问地址（公网）： http://${PUB}:${PORT}/${c_rst}"
+  echo -e "${c_dgrn_i}健康检查：         http://${IP}:${PORT}/healthz${c_rst}"
+  [[ -n "${PUB}" ]] && echo -e "${c_dgrn_i}健康检查（公网）： http://${PUB}:${PORT}/healthz${c_rst}"
+  echo -e "${c_dgrn_i}管理登录入口：     http://${IP}:${PORT}/login${c_rst}"
+  [[ -n "${PUB}" ]] && echo -e "${c_dgrn_i}管理登录入口（公网）：http://${PUB}:${PORT}/login${c_rst}"
 
   if [[ ${ADMIN_INIT_DONE} -eq 1 ]]; then
-    echo -e "${c_org}管理员账号（本次初始化）：${ADMIN_USER_INPUT}${c_rst}"
-    echo -e "${c_org}管理员密码（本次明文）：    ${ADMIN_PWD_INPUT}${c_rst}"
+    echo -e "${c_dgrn_i}管理员账号（本次初始化）：${ADMIN_USER_INPUT}${c_rst}"
+    echo -e "${c_dgrn_i}管理员密码（本次明文）：    ${ADMIN_PWD_INPUT}${c_rst}"
   else
-    echo -e "${c_org}管理员：本次未初始化，沿用已有账号密码（未显示）${c_rst}"
+    echo -e "${c_dgrn_i}管理员：本次未初始化，沿用已有账号密码（未显示）${c_rst}"
   fi
 
-  echo -e "${c_org}容器状态：${c_rst}"
-  docker compose -f "${COMPOSE_FILE}" ps
+  # 聚合状态：一行
+  local agg
+  agg="$(docker compose -f "${COMPOSE_FILE}" ps --format 'table {{.Service}}\t{{.State}}' \
+        | tail -n +2 | awk '{s=$1; $1=""; sub(/^ /,""); st=$0; printf "%s=%s, ", s, st}' | sed 's/, $//')"
+  [[ -z "${agg}" ]] && agg="(无容器信息)"
+  echo -e "${c_dgrn_i}聚合状态：${agg}${c_rst}"
 
-  echo -e "${c_org}数据/日志目录： ${APP_DIR}/backups  /  ${APP_DIR}/logs${c_rst}"
-  echo -e "${c_org}一行日志命令：${c_rst}"
-  echo -e "${c_org}  systemd：${LOG_CMD_SYSTEMD}${c_rst}"
-  echo -e "${c_org}  Docker ：${LOG_CMD_COMPOSE}${c_rst}"
-  echo -e "${c_org}  Nginx ：${LOG_CMD_NGINX}${c_rst}"
-  echo -e "${c_org}======================================================${c_rst}"
+  echo -e "${c_dgrn_i}数据/日志目录： ${APP_DIR}/backups  /  ${APP_DIR}/logs${c_rst}"
+  echo -e "${c_dgrn_i}一行日志命令：${c_rst}"
+  echo -e "${c_dgrn_i}  systemd：${LOG_CMD_SYSTEMD}${c_rst}"
+  echo -e "${c_dgrn_i}  Docker ：${LOG_CMD_COMPOSE}${c_rst}"
+  echo -e "${c_dgrn_i}  Nginx ：${LOG_CMD_NGINX}${c_rst}"
+  echo -e "${c_dgrn_i}======================================================${c_rst}"
 }
 
 # ========= 主流程 =========
