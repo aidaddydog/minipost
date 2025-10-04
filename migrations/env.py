@@ -34,6 +34,7 @@ def _compose_sqlalchemy_url() -> str:
 def _import_target_metadata():
     # Try common locations used by typical FastAPI projects
     candidates = [
+        ("app.common.models_base", "Base"),
         ("app.db.base", "Base"),
         ("app.database.base", "Base"),
         ("app.database.base_class", "Base"),

@@ -6,6 +6,11 @@ const empty: NavModel = { l1: [], l2ByL1: {}, tabsDict: {} };
 export async function loadNav(): Promise<NavModel> {
   try {
     const r = await fetch("/api/nav", { headers: { accept: "application/json" } });
+    if (r.status === 401) {
+      const next = encodeURIComponent(location.pathname + location.search);
+      location.href = `/login?next=${next}`;
+      return empty;
+    }
     if (!r.ok) return empty;
     const j = await r.json();
 

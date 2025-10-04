@@ -12,8 +12,8 @@ compose_yml="$ROOT/deploy/docker-compose.yml"
 
 run_python(){
 python3 - <<'PY'
-from app.services.nav_loader import rebuild_nav
-nav = rebuild_nav(write_cache=True)
+from app.common.utils import refresh_nav_cache
+nav = refresh_nav_cache()
 s = nav.get("stats", {})
 print(f"[reload_nav] 已聚合：模块 {s.get('modules',0)} / 菜单 {s.get('menus',0)} / 页签 {s.get('tabs',0)}")
 PY
@@ -22,8 +22,38 @@ PY
 if command -v docker >/dev/null 2>&1 && command -v docker compose >/dev/null 2>&1; then
   if docker compose -f "$compose_yml" ps --services 2>/dev/null | grep -q '^web$'; then
     docker compose -f "$compose_yml" exec -T web python - <<'PY' || run_python
-from app.services.nav_loader import rebuild_nav
-nav = rebuild_nav(write_cache=True)
+from app.common.utils import refresh_nav_cache
+nav = refresh_nav_cache()
+s = nav.get("stats", {})
+print(f"[reload_nav] 已聚合：模块 {s.get('modules',0)} / 菜单 {s.get('menus',0)} / 页签 {s.get('tabs',0)}")
+PY
+  else
+    run_python
+  fi
+else
+  run_python
+fi
+
+# 兼容 docker-compose / docker compose 两种用法
+has_docker_compose_subcmd() { docker compose version >/dev/null 2>&1; }
+has_docker_compose_bin()    { command -v docker-compose >/dev/null 2>&1; }
+
+if command -v docker >/dev/null 2>&1 && has_docker_compose_subcmd; then
+  if docker compose -f "$compose_yml" ps --services 2>/dev/null | grep -q '^web$'; then
+    docker compose -f "$compose_yml" exec -T web python - <<'PY' || run_python
+from app.common.utils import refresh_nav_cache
+nav = refresh_nav_cache()
+s = nav.get("stats", {})
+print(f"[reload_nav] 已聚合：模块 {s.get('modules',0)} / 菜单 {s.get('menus',0)} / 页签 {s.get('tabs',0)}")
+PY
+  else
+    run_python
+  fi
+elif has_docker_compose_bin; then
+  if docker-compose -f "$compose_yml" ps --services 2>/dev/null | grep -q '^web$'; then
+    docker-compose -f "$compose_yml" exec -T web python - <<'PY' || run_python
+from app.common.utils import refresh_nav_cache
+nav = refresh_nav_cache()
 s = nav.get("stats", {})
 print(f"[reload_nav] 已聚合：模块 {s.get('modules',0)} / 菜单 {s.get('menus',0)} / 页签 {s.get('tabs',0)}")
 PY

@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 
 from app.db import get_db
 from app.security import create_access_token, pwd_context
+from app.settings import settings
 from modules.core.backend.models.rbac import User
 
 router = APIRouter(tags=["auth"], include_in_schema=False)
@@ -99,7 +100,7 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
         value=token,
         httponly=True,
         samesite="lax",
-        secure=False,
+        secure=(settings.ENVIRONMENT.lower() == "production"),
         max_age=60 * 60 * 8,  # 与 Settings.JWT_EXPIRES_MINUTES 保持一致（8 小时）
         path="/",
     )

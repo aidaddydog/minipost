@@ -4,7 +4,7 @@ from typing import Any, Dict
 
 # 当前用户依赖（保持与你现有的一致）
 try:
-    from app.deps import current_user  # 优先使用已有依赖
+    from app.deps import current_user, require_permissions  # 优先使用已有依赖
 except Exception:
     try:
         from app.core.security import current_user  # 兼容旧路径
@@ -33,7 +33,7 @@ def get_nav(_: Any = Depends(current_user)) -> JSONResponse:
     shaped["ts"] = cache.get("ts") or nav.get("ts")
     return JSONResponse(shaped)
 
-@router.post("/nav/reload")
+@router.post("/nav/reload", dependencies=[Depends(require_permissions(["rbac:manage"]))])
 def reload_nav(_: Any = Depends(current_user)) -> JSONResponse:
     r = refresh_nav_cache()
     nav = r.get("data") or r

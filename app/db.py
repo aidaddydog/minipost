@@ -15,11 +15,16 @@ engine = create_engine(_dsn(), pool_pre_ping=True, pool_size=5, max_overflow=5, 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False, future=True)
 
 def get_db():
-    from sqlalchemy.exc import OperationalError
+    from sqlalchemy.exc import SQLAlchemyError
     db = SessionLocal()
     try:
         yield db
-    except OperationalError:
+    except SQLAlchemyError:
+        db.rollback()
+        raise
+    except Exception:
+        # 其它异常也保证回滚，避免悬挂事务
+        db.rollback()
         raise
     finally:
         db.close()

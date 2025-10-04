@@ -7,9 +7,11 @@ from fastapi.responses import HTMLResponse, FileResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 from fastapi import APIRouter
+from fastapi.middleware.cors import CORSMiddleware
 
 from pathlib import Path
 import importlib.util
+import os
 import logging
 from typing import Any, Dict
 
@@ -17,11 +19,37 @@ from app.settings import settings
 from app.api.health import router as health_router
 from app.api.v1.nav import router as nav_router
 from app.deps import current_user  # 统一鉴权
-from app.common.utils import get_nav_cache
-from app.services.nav_loader import rebuild_nav  # 启动预热
+from app.common.utils import get_nav_cache, refresh_nav_cache
+
 
 logger = logging.getLogger("minipost")
 app = FastAPI(title="minipost")
+
+# CORS：生产环境默认关闭；如需开放请在 .deploy.env 设置 CORS_ORIGINS
+origins = []
+if getattr(settings, 'CORS_ORIGINS', ''):
+    origins = [o.strip() for o in settings.CORS_ORIGINS.split(',') if o.strip()]
+elif settings.ENVIRONMENT.lower() != 'production':
+    origins = ['http://localhost:5173']  # 开发联调默认放行本地前端
+if origins:
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=origins,
+        allow_credentials=True,
+        allow_methods=['*'],
+        allow_headers=['*'],
+    )
+
+
+# 开发环境允许本地前端跨域
+if settings.ENVIRONMENT.lower() != "production":
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=["http://localhost:5173"],
+        allow_credentials=True,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
 
 # ---- 静态资源 ----
 # Vite 构建产物在 static/assets 下
@@ -111,6 +139,16 @@ def _guess_template_from_href(href: str) -> str | None:
                 return str(p)
     return None
 
+
+# 模板路径白名单校验：必须位于 modules/**/frontend/templates 下
+def _is_safe_template(p: str) -> bool:
+    try:
+        base = Path("modules").resolve()
+        target = Path(p).resolve()
+        return target.is_file() and str(target).startswith(str(base)) and ("frontend" + os.sep + "templates") in str(target)
+    except Exception:
+        return False
+
 # ---- 通用 L3：找得到就渲染模板；找不到一律回落 SPA ----
 @app.get("/{full_path:path}", include_in_schema=False, response_class=HTMLResponse)
 def serve_tab_page(full_path: str, request: Request, user=Depends(current_user)):
@@ -128,7 +166,7 @@ def serve_tab_page(full_path: str, request: Request, user=Depends(current_user))
         if template_path:
             break
 
-    if template_path:
+    if template_path and _is_safe_template(template_path):
         return templates.TemplateResponse(template_path, {"request": request, "THEME_NAME": settings.THEME_NAME})
 
     # 关键改动：未注册路径 → 回落到 SPA（壳层始终存在）
@@ -141,7 +179,7 @@ def serve_tab_page(full_path: str, request: Request, user=Depends(current_user))
 @app.on_event("startup")
 def _warmup():
     try:
-        rebuild_nav(write_cache=True)
+        refresh_nav_cache()
         logger.info("导航缓存预热完成")
     except Exception as e:
         logger.warning("导航缓存预热失败：%s", e)
