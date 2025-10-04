@@ -26,6 +26,10 @@ class Settings(BaseSettings):
     UFW_OPEN: bool = Field(default=True)
     JWT_SECRET: str = Field(default="change-me-by-bootstrap")
     JWT_EXPIRES_MINUTES: int = Field(default=8 * 60)  # 8 小时
+    
+    # 认证 Cookie 安全开关：True=带 Secure（需 HTTPS），False=不带 Secure（允许 HTTP）
+    AUTH_COOKIE_SECURE: bool = Field(default=True)
+    
     CORS_ORIGINS: str = Field(default="")  # 逗号分隔，如: https://a.com,https://b.com
     ENVIRONMENT: str = Field(default="production")
 
