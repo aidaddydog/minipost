@@ -1,8 +1,0 @@
-version: "3.8"
-services:
-  web:
-    healthcheck:
-      test: ["CMD-SHELL", "python - <<'PY'\nimport urllib.request, sys\ntry:\n  with urllib.request.urlopen('http://127.0.0.1:8000/readyz', timeout=3) as r:\n    import json; d=json.loads(r.read().decode());\n    sys.exit(0 if d.get('ok') else 1)\nexcept Exception:\n  sys.exit(1)\nPY"]
-      interval: 5s
-      timeout: 5s
-      retries: 40
