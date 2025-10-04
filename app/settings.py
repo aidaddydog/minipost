@@ -28,6 +28,8 @@ class Settings(BaseSettings):
     JWT_EXPIRES_MINUTES: int = Field(default=8 * 60)  # 8 小时
     CORS_ORIGINS: str = Field(default="")  # 逗号分隔，如: https://a.com,https://b.com
     ENVIRONMENT: str = Field(default="production")
+    # 新增：Cookie Secure 开关（auto/on/off）
+    COOKIE_SECURE: str = Field(default="auto")
 
     class Config:
         env_file = ".deploy.env"
