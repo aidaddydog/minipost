@@ -7,8 +7,8 @@ c_red='\033[0;31m'
 c_grn='\033[0;32m'
 c_ylw='\033[0;33m'
 c_cyn='\033[0;36m'
-c_blu='\033[38;5;39m'      # 芙蒂尼蓝（近似）
-c_org='\033[38;5;214m'     # 橙色（保留但不再用于最终报告）
+c_blu='\033[38;5;39m'      # 芙蒂尼蓝
+c_org='\033[38;5;214m'     # 橙色（保留但不用于最终报告）
 c_dgrn_i='\033[3;38;5;22m' # 斜体墨绿色
 c_rst='\033[0m'
 
@@ -18,7 +18,7 @@ warn() { echo -e "${c_ylw}[!] $*${c_rst}"; }
 err()  { echo -e "${c_red}[-] $*${c_rst}" >&2; }
 die()  { err "$1"; exit 1; }
 
-# ========= 旋转指示（黄色 ⣿ / 完成 ✓ 绿色）=========
+# ========= 运行状态动画（黄色 ⣿ / 完成 ✔ 绿色）=========
 SPIN_PID=0
 SPIN_FILE=""
 SPIN_MSG=""
@@ -28,7 +28,8 @@ spin_begin() {
   SPIN_FILE="$(mktemp)"
   : > "${SPIN_FILE}"
   (
-    local frames=(⣾ ⣿ ⣷ ⣯ ⣟ ⣻ ⣽ ⣾)
+    # 6 帧动画
+    local frames=(⣷ ⣯ ⣟ ⣻ ⣽ ⣾)
     local i=0
     tput civis 2>/dev/null || true
     while [[ -f "${SPIN_FILE}" ]]; do
@@ -47,7 +48,7 @@ spin_end() {
   [[ -n "${SPIN_FILE}" && -f "${SPIN_FILE}" ]] && rm -f "${SPIN_FILE}"
   wait "${SPIN_PID}" 2>/dev/null || true
   if [[ "${rc}" -eq 0 ]]; then
-    printf "\r\033[0;32m✓\033[0m \033[38;5;39m%s\033[0m\n" "${SPIN_MSG}"
+    printf "\r\033[0;32m✔\033[0m \033[38;5;39m%s\033[0m\n" "${SPIN_MSG}"
   else
     printf "\r\033[0;31m✗\033[0m \033[38;5;39m%s\033[0m\n" "${SPIN_MSG}"
   fi
@@ -56,30 +57,21 @@ spin_end() {
   SPIN_MSG=""
 }
 
-# ========= 分支自动识别（新增） =========
-# 优先顺序：
-# 1) 显式环境变量：MINIPOST_BRANCH / BRANCH（若设置且不为 "auto"）
-# 2) 若在本地 git 仓库中执行：使用当前分支
-# 3) 使用脚本自带的分支（本文件所在分支）
-# 4) 兜底：main
-: "${SELF_BRANCH:=mainV1.1}"   # ← 本文件所在分支；在 mainV1.1 分支内保持 mainV1.1
+# ========= 分支自动识别 =========
+: "${SELF_BRANCH:=mainV1.1}"
 
 detect_branch() {
   local explicit="${MINIPOST_BRANCH:-${BRANCH:-}}"
   if [[ -n "${explicit}" && "${explicit}" != "auto" ]]; then
-    echo "${explicit}"
-    return 0
+    echo "${explicit}"; return 0
   fi
-
   if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
     local cur_branch
     cur_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
     if [[ -n "${cur_branch}" && "${cur_branch}" != "HEAD" ]]; then
-      echo "${cur_branch}"
-      return 0
+      echo "${cur_branch}"; return 0
     fi
   fi
-
   echo "${SELF_BRANCH:-main}"
 }
 
@@ -101,6 +93,29 @@ box5(){ # box5 "标题" "$content"
   echo "────────────────────────────────────────────────────────"
   echo -e "$content" | tail -n 5
   echo "────────────────────────────────────────────────────────"
+}
+
+# ========= 固定步骤菜单（不随代码逻辑变更）=========
+print_fixed_steps(){
+  echo -e "${c_cyn}步骤菜单（固定）：${c_rst}"
+  echo -e "  ${c_blu}1. 安装/校验基础软件${c_rst}"
+  echo -e "  ${c_blu}2. 安装/检查 Docker${c_rst}"
+  echo -e "  ${c_blu}3. 选择部署模式${c_rst}"
+  echo -e "  ${c_blu}4. 准备/更新仓库${c_rst}"
+  echo -e "  ${c_blu}5. 准备环境变量并生成 .deploy.env（含 HTTPS 登录开关）${c_rst}"
+  echo -e "  ${c_blu}6. 加载环境并写入 postgres.env${c_rst}"
+  echo -e "  ${c_blu}7. 释放端口${c_rst}"
+  echo -e "  ${c_blu}8. 校验模块清单${c_rst}"
+  echo -e "  ${c_blu}9. 系统调优${c_rst}"
+  echo -e "  ${c_blu}10. 构建 Web 镜像${c_rst}"
+  echo -e "  ${c_blu}11. 启动 PostgreSQL${c_rst}"
+  echo -e "  ${c_blu}12. 执行数据库迁移${c_rst}"
+  echo -e "  ${c_blu}13. 初始化管理员（可选）${c_rst}"
+  echo -e "  ${c_blu}14. 启动 Web 服务${c_rst}"
+  echo -e "  ${c_blu}15. 热重载导航${c_rst}"
+  echo -e "  ${c_blu}16. 防火墙放行与验证${c_rst}"
+  echo -e "  ${c_blu}17. 重启服务${c_rst}"
+  echo -e "  ${c_blu}18. 部署报告${c_rst}"
 }
 
 # ========= 0) Preflight =========
@@ -155,9 +170,15 @@ choose_mode(){
   echo -e "  ${c_blu}1) 全新安装${c_rst}：备份→清理容器/卷/镜像/缓存→重装"
   echo -e "  ${c_blu}2) 覆盖安装（默认）${c_rst}：保留数据卷，仅更新结构与镜像"
   echo -e "  ${c_blu}3) 升级安装${c_rst}：仅同步差异；若有迁移→自动幂等迁移"
+  spin_begin "菜单：选择部署模式"
   read -rp "输入 [1/2/3]（默认 2）: " MODE || true
   MODE="${MODE:-2}"
-  [[ "${MODE}" =~ ^[123]$ ]] || die "非法输入：${MODE}"
+  if [[ "${MODE}" =~ ^[123]$ ]]; then
+    spin_end 0
+  else
+    spin_end 1
+    die "非法输入：${MODE}"
+  fi
 }
 
 prepare_repo(){
@@ -185,8 +206,10 @@ prepare_env(){
   # ===== HTTPS 登录 Cookie Secure 开关（默认 N）=====
   if ! grep -q '^COOKIE_SECURE=' .deploy.env; then
     echo -e "${c_cyn}是否开启 HTTPS 登录（Cookie 将设置 Secure，仅 HTTPS 生效）？${c_rst}"
+    spin_begin "菜单：是否开启 HTTPS 登录"
     read -rp "开启请输入 y，默认 [n]: " _ans || true
     _ans="$(echo "${_ans:-n}" | tr 'A-Z' 'a-z')"
+    spin_end 0
     if [[ "${_ans}" == "y" || "${_ans}" == "yes" ]]; then
       echo "COOKIE_SECURE=on" >> .deploy.env
       ok "已设置 COOKIE_SECURE=on（仅 HTTPS 登录）"
@@ -424,7 +447,7 @@ report(){
     echo -e "${c_dgrn_i}管理员账号（本次初始化）：${ADMIN_USER_INPUT}${c_rst}"
     echo -e "${c_dgrn_i}管理员密码（本次明文）：    ${ADMIN_PWD_INPUT}${c_rst}"
   else
-    echo -e "${c_dgrn_i}管理员：本次未初始化，沿用已有账号密码（未显示）${c_rst}"
+    echo -e "${c_dgrn_i}管理员：本次未初始化，沿用原有账号密码（未显示）${c_rst}"
   fi
 
   # 聚合状态：一行
@@ -443,6 +466,6 @@ report(){
 }
 
 # ========= 主流程 =========
-need_root; check_os; ensure_pkgs; check_net_time; ensure_docker;
+need_root; check_os; print_fixed_steps; ensure_pkgs; check_net_time; ensure_docker;
 choose_mode; prepare_repo; pre_stop_if_installed; prepare_env; load_deploy_env; write_postgres_env; ensure_port_free; validate_modules; tune_perf; apply_mode;
 build_web; start_pg; migrate_db; maybe_init_admin_by_mode; start_web; hot_reload; ufw_and_verify; restart_services; report
