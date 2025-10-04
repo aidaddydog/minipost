@@ -43,6 +43,7 @@ def _try_create_all_from_metadata() -> bool:
     Returns True if tables were created (or already existed).
     """
     candidates = [
+        ("app.common.models_base", "Base"),
         ("app.db.base", "Base"),
         ("app.database.base", "Base"),
         ("app.database.base_class", "Base"),
