@@ -100,7 +100,7 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
         value=token,
         httponly=True,
         samesite="lax",
-        secure=(settings.ENVIRONMENT.lower() == "production"),
+        secure=settings.AUTH_COOKIE_SECURE,
         max_age=60 * 60 * 8,  # 与 Settings.JWT_EXPIRES_MINUTES 保持一致（8 小时）
         path="/",
     )
