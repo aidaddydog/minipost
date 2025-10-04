@@ -20,9 +20,36 @@ die()  { err "$1"; exit 1; }
 spin(){ echo -e "${c_cyn}行动状态：⠙ ${*}${c_rst}"; }
 progress_demo(){ echo -e "${c_cyn}安装进度：[⣿⣿⣿⣿⣿⣿⣿⣿⣶⣿⣿⣿⣿⣿] 95%${c_rst}"; }
 
+# ========= 分支自动识别（新增） =========
+# 优先顺序：
+# 1) 显式环境变量：MINIPOST_BRANCH / BRANCH（若设置且不为 "auto"）
+# 2) 若在本地 git 仓库中执行：使用当前分支
+# 3) 使用脚本自带的分支（本文件所在分支）
+# 4) 兜底：main
+: "${SELF_BRANCH:=mainV1.1}"   # ← 本文件所在分支；在 mainV1.1 分支内保持 mainV1.1
+
+detect_branch() {
+  local explicit="${MINIPOST_BRANCH:-${BRANCH:-}}"
+  if [[ -n "${explicit}" && "${explicit}" != "auto" ]]; then
+    echo "${explicit}"
+    return 0
+  fi
+
+  if command -v git >/dev/null 2>&1 && git rev-parse --is-inside-work-tree >/dev/null 2>&1; then
+    local cur_branch
+    cur_branch="$(git rev-parse --abbrev-ref HEAD 2>/dev/null || true)"
+    if [[ -n "${cur_branch}" && "${cur_branch}" != "HEAD" ]]; then
+      echo "${cur_branch}"
+      return 0
+    fi
+  fi
+
+  echo "${SELF_BRANCH:-main}"
+}
+
 # ========= 常量 =========
 REPO_URL="${REPO_URL:-https://github.com/aidaddydog/minipost.git}"
-BRANCH="${BRANCH:-main}"
+BRANCH="${BRANCH:-$(detect_branch)}"
 APP_DIR="${APP_DIR:-/opt/minipost}"
 COMPOSE_FILE="${APP_DIR}/deploy/docker-compose.yml"
 : "${APP_PORT:=8000}"
