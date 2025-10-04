@@ -15,13 +15,16 @@ from modules.core.backend.models.rbac import User
 
 router = APIRouter(tags=["auth"], include_in_schema=False)
 
-# ---------- SPA 登录页（保持不变）：GET /login ----------
+# ---------- SPA 登录页（/login） ----------
 def _find_spa_index() -> Optional[str]:
+    """
+    查找由前端构建产物生成的 index.html（deploy/Dockerfile 已将 static/assets 拷贝到 /app/static/assets）
+    """
     candidates = [
-        "/app/static/assets/index.html",
-        "/app/static/index.html",
-        "static/assets/index.html",
-        "static/index.html",
+        os.path.join(os.getcwd(), "static", "assets", "index.html"),
+        os.path.join(os.getcwd(), "app", "static", "assets", "index.html"),
+        os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(__file__)))), "static", "assets", "index.html"),
+        os.path.join(os.getcwd(), "index.html"),  # 兜底
     ]
     for p in candidates:
         if os.path.exists(p):
@@ -66,14 +69,25 @@ async def _extract_credentials(request: Request) -> Dict[str, Any]:
 
     return {"username": (username or "").strip(), "password": (password or "").strip()}
 
+# ---------- Cookie Secure 判定（支持 auto/on/off 开关） ----------
+def _cookie_secure_on(request: Request) -> bool:
+    v = (getattr(settings, "COOKIE_SECURE", "auto") or "auto").strip().lower()
+    if v in {"on", "true", "1", "yes"}:
+        return True
+    if v in {"off", "false", "0", "no"}:
+        return False
+    # auto：优先识别反代头，回退到实际 scheme
+    scheme = request.headers.get("x-forwarded-proto") or request.url.scheme
+    return scheme == "https"
+
 # ---------- 登录接口：/api/login（GET/POST 均可） ----------
 @router.api_route("/api/login", methods=["GET", "POST"])
 async def api_login(request: Request, db: Session = Depends(get_db)):
     """
-    统一的登录接口（不再依赖旧逻辑）：
+    统一的登录接口：
     - 接受 Query / x-www-form-urlencoded / JSON 中的 username/password
     - 校验成功：签发 JWT，写入 access_token（HTTPOnly Cookie），返回 {ok: True, user: username}
-    - 失败：401 / 400
+    - 失败：401 / 422
     """
     creds = await _extract_credentials(request)
     username = creds.get("username")
@@ -82,26 +96,22 @@ async def api_login(request: Request, db: Session = Depends(get_db)):
     if not username or not password:
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail="缺少用户名或密码")
 
-    user: Optional[User] = (
-        db.query(User)
-        .filter(User.username == username, User.is_active == True)  # noqa: E712
-        .first()
-    )
-    if not user or not pwd_context.verify(password, user.password_hash):
+    user: Optional[User] = db.query(User).filter(User.username == username).first()
+    if not user or not user.is_active:
+        raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户不存在或已禁用")
+    if not pwd_context.verify(password, user.password_hash):
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="用户名或密码错误")
 
-    # 生成 JWT，写入 HttpOnly Cookie（与 app.deps.current_user 依赖一致）
     token = create_access_token(sub=user.username)
 
     resp = JSONResponse({"ok": True, "user": user.username})
-    # Cookie 属性：HttpOnly，Lax，路径根；开发环境未强制 secure
     resp.set_cookie(
         key="access_token",
         value=token,
         httponly=True,
         samesite="lax",
-        secure=(settings.ENVIRONMENT.lower() == "production"),
-        max_age=60 * 60 * 8,  # 与 Settings.JWT_EXPIRES_MINUTES 保持一致（8 小时）
+        secure=_cookie_secure_on(request),
+        max_age=60 * 60 * 8,
         path="/",
     )
     return resp
